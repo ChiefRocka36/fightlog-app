@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
 <title>Fight Log</title>
-<meta name="theme-color" content="#000000" />
+<meta name="theme-color" content="#f4f2ec" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -16,16 +16,19 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" crossorigin></script>
-<script src="https://cdn.tailwindcss.com"></script>
 
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
-  html, body { background: #ffffff; margin: 0; overscroll-behavior: none; }
-  .fl-root, .fl-root input, .fl-root textarea, .fl-root select, .fl-root button { font-family: 'Inter', sans-serif; }
-  .fl-heading { font-family: 'Inter', sans-serif; letter-spacing: -0.01em; }
-  .fl-mono { font-family: 'IBM Plex Mono', monospace; }
-  .fl-root input::placeholder, .fl-root textarea::placeholder { color: #9a9a9a; }
-  .fl-root input[type="date"], .fl-root input[type="time"] { color-scheme: light; }
+  @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  html, body { margin: 0; overscroll-behavior: none; background: #f4f2ec; }
+  body.fl-dark { background: #0e0d0c; }
+  #root, .fl-root, .fl-root input, .fl-root textarea, .fl-root select, .fl-root button {
+    font-family: Archivo, system-ui, -apple-system, sans-serif;
+  }
+  .fl-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  * { -webkit-tap-highlight-color: transparent; }
+  button { cursor: pointer; }
+  .fl-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .fl-scroll-x::-webkit-scrollbar { display: none; }
   .icon-spin { animation: fl-spin 1s linear infinite; }
   @keyframes fl-spin { to { transform: rotate(360deg); } }
 </style>
@@ -40,25 +43,18 @@
         try {
           var v = localStorage.getItem("fl:" + key);
           if (v === null) { reject(new Error("not found")); return; }
-          resolve({ key: key, value: v, shared: false });
+          resolve({ key: key, value: v });
         } catch (e) { reject(e); }
       });
     },
     set: function (key, value) {
       return new Promise(function (resolve, reject) {
-        try { localStorage.setItem("fl:" + key, value); resolve({ key: key, value: value, shared: false }); }
+        try { localStorage.setItem("fl:" + key, value); resolve({ key: key, value: value }); }
         catch (e) { reject(e); }
       });
     },
     delete: function (key) {
-      return new Promise(function (resolve) { localStorage.removeItem("fl:" + key); resolve({ key: key, deleted: true, shared: false }); });
-    },
-    list: function (prefix) {
-      prefix = prefix || "";
-      return new Promise(function (resolve) {
-        var keys = Object.keys(localStorage).filter(function (k) { return k.indexOf("fl:" + prefix) === 0; }).map(function (k) { return k.slice(3); });
-        resolve({ keys: keys, prefix: prefix, shared: false });
-      });
+      return new Promise(function (resolve) { localStorage.removeItem("fl:" + key); resolve({ key: key, deleted: true }); });
     }
   };
   if ("serviceWorker" in navigator) {
@@ -69,548 +65,823 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useCallback } = React;
 
-function Icon({ name, size = 18, color = "currentColor", fill = "none", style, className }) {
-  const common = { width: size, height: size, viewBox: "0 0 24 24", fill, stroke: color, strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", style, className };
-  const paths = {
-    clipboardList: <><rect x="6" y="3" width="12" height="18" rx="0"/><rect x="9" y="1" width="6" height="3" rx="0"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="13" y2="18"/></>,
-    calendarDays: <><rect x="3" y="5" width="18" height="16" rx="0"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/><circle cx="8" cy="14" r="1"/><circle cx="12" cy="14" r="1"/><circle cx="16" cy="14" r="1"/></>,
-    dumbbell: <><line x1="6" y1="12" x2="18" y2="12"/><rect x="1.5" y="9" width="3" height="6" rx="0"/><rect x="19.5" y="9" width="3" height="6" rx="0"/><rect x="5" y="7" width="2.2" height="10" rx="0"/><rect x="16.8" y="7" width="2.2" height="10" rx="0"/></>,
-    plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
-    x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
-    trash: <><polyline points="3 6 5 6 21 6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></>,
-    chevronLeft: <polyline points="15 18 9 12 15 6"/>,
-    chevronRight: <polyline points="9 18 15 12 9 6"/>,
-    save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
-    shuffle: <><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></>,
-    loader: <><circle cx="12" cy="12" r="9" strokeOpacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"/></>,
-    swords: <><line x1="5" y1="5" x2="19" y2="19"/><line x1="5" y1="19" x2="19" y2="5"/><line x1="9" y1="15" x2="15" y2="9"/></>,
-    chart: <><line x1="4" y1="20" x2="4" y2="11"/><line x1="10" y1="20" x2="10" y2="4"/><line x1="16" y1="20" x2="16" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></>,
-    download: <><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/></>,
-    upload: <><path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M5 3h14"/></>,
-    alertTriangle: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
-  };
-  return <svg {...common}>{paths[name] || null}</svg>;
+/* ---------- theme ---------- */
+const THEMES = {
+  light: { bg: "#f4f2ec", fg: "#12100e", rule: "#cdc8bd", muted: "#6b665d", body: "#4a463f", accent: "#c8342b" },
+  dark:  { bg: "#0e0d0c", fg: "#f4f2ec", rule: "#2c2a26", muted: "#8a857b", body: "#a9a396", accent: "#e05247" }
+};
+
+/* ---------- icons ---------- */
+function Icon({ name, size = 18 }) {
+  const d = {
+    log: "M7 3h10v18H7zM10 9h4M10 13h4M10 17h3",
+    cal: "M3 5h18v16H3zM3 10h18M8 2v4M16 2v4",
+    dumbbell: "M6 12h12M2 9v6M22 9v6M6 7v10M18 7v10",
+    chart: "M4 20V11M10 20V4M16 20v-6M2 20h20",
+    plus: "M12 5v14M5 12h14",
+    x: "M18 6 6 18M6 6l12 12",
+    trash: "M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6",
+    shuffle: "M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5",
+    down: "M12 3v12M7 10l5 5 5-5M5 21h14",
+    up: "M12 21V9M7 14l5-5 5 5M5 3h14",
+    left: "M15 18 9 12l6-6",
+    right: "M9 18l6-6-6-6",
+    loader: "M21 12a9 9 0 1 1-9-9"
+  }[name];
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none" }}>
+      <path d={d} />
+    </svg>
+  );
 }
 
-const C = { paper: "#ffffff", obsidian: "#000000", inkstone: "#181818", feltGray: "#6d6d6d", slatePill: "#636363", ashMist: "#9a9a9a", pewter: "#808080", hairline: "rgba(0,0,0,0.14)" };
-const IRIDESCENT = "linear-gradient(90deg, rgb(160,224,171), rgb(255,172,46) 50%, rgb(165,45,37))";
-const EASE = "cubic-bezier(0.19,1,0.22,1)";
-function textOn(hex) {
-  const c = hex.replace("#", "");
-  const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.55 ? C.obsidian : C.paper;
-}
-
+/* ---------- data model ---------- */
 const DISCIPLINES = [
-  { key: "mma", label: "MMA", color: C.obsidian },
-  { key: "striking", label: "Striking", color: C.inkstone },
-  { key: "bjj", label: "BJJ", color: C.slatePill },
-  { key: "wrestling", label: "Wrestling", color: C.feltGray },
-  { key: "strength", label: "Kraft", color: C.pewter },
-  { key: "conditioning", label: "Konditionierung", color: C.ashMist },
-  { key: "other", label: "Sonstiges", color: C.ashMist },
+  { key: "mma", label: "MMA", strong: true },
+  { key: "striking", label: "Striking", strong: true },
+  { key: "bjj", label: "BJJ", strong: true },
+  { key: "wrestling", label: "Wrestling", strong: true },
+  { key: "strength", label: "Strength", strong: false },
+  { key: "conditioning", label: "Conditioning", strong: false },
+  { key: "other", label: "Other", strong: false }
 ];
-const getDiscipline = (key) => DISCIPLINES.find((d) => d.key === key) || DISCIPLINES[DISCIPLINES.length - 1];
+const getDiscipline = (k) => DISCIPLINES.find((d) => d.key === k) || DISCIPLINES[DISCIPLINES.length - 1];
 const EVENT_TYPES = [
-  { key: "training", label: "Training", color: C.ashMist },
-  { key: "seminar", label: "Seminar", color: C.pewter },
-  { key: "tournament", label: "Turnier", color: C.feltGray },
-  { key: "competition", label: "Wettkampf", color: C.obsidian },
+  { key: "training", label: "Training" },
+  { key: "seminar", label: "Seminar" },
+  { key: "tournament", label: "Tournament" },
+  { key: "competition", label: "Competition" }
 ];
-const getEventType = (key) => EVENT_TYPES.find((e) => e.key === key) || EVENT_TYPES[0];
-const GOALS = [{ key: "strength", label: "Kraft" }, { key: "power", label: "Explosivkraft" }, { key: "conditioning", label: "Ausdauer" }, { key: "mma", label: "MMA-spezifisch" }];
+const getEventType = (k) => EVENT_TYPES.find((e) => e.key === k) || EVENT_TYPES[0];
+const GOALS = [
+  { key: "strength", label: "Strength" },
+  { key: "power", label: "Power" },
+  { key: "conditioning", label: "Conditioning" },
+  { key: "mma", label: "MMA" }
+];
 
 const POOLS = {
-  warmupStrength: { name: "Dynamisches Aufwärmen (Hüfte, Schultern, Ausfallschritte)", sets: 1, reps: "8 Min" },
-  warmupCond: { name: "Lockeres Einlaufen / Seilspringen", sets: 1, reps: "5 Min" },
+  warmupStrength: { name: "Dynamic warm-up (hips, shoulders, lunges)", sets: 1, reps: "8 min" },
+  warmupCond: { name: "Easy jog / skipping rope", sets: 1, reps: "5 min" },
   strength: [
-    { name: "Kniebeuge", sets: 4, reps: "5" }, { name: "Kreuzheben", sets: 3, reps: "5" },
-    { name: "Bankdrücken", sets: 4, reps: "6" }, { name: "Klimmzüge", sets: 4, reps: "Max" },
-    { name: "Langhantelrudern", sets: 4, reps: "8" }, { name: "Schulterdrücken", sets: 3, reps: "8" },
-    { name: "Bulgarian Split Squat", sets: 3, reps: "8 je Bein" }, { name: "Farmers Walk", sets: 3, reps: "30 m" },
-    { name: "Plank", sets: 3, reps: "60 Sek" }, { name: "Nacken-Bridges", sets: 3, reps: "10" },
+    { name: "Back Squat", sets: 4, reps: "5" }, { name: "Deadlift", sets: 3, reps: "5" },
+    { name: "Bench Press", sets: 4, reps: "6" }, { name: "Pull-ups", sets: 4, reps: "Max" },
+    { name: "Barbell Row", sets: 4, reps: "8" }, { name: "Overhead Press", sets: 3, reps: "8" },
+    { name: "Bulgarian Split Squat", sets: 3, reps: "8 per leg" }, { name: "Farmers Walk", sets: 3, reps: "30 m" },
+    { name: "Plank", sets: 3, reps: "60 sec" }, { name: "Neck Bridges", sets: 3, reps: "10" }
   ],
   power: [
     { name: "Box Jumps", sets: 4, reps: "5" }, { name: "Kettlebell Swings", sets: 4, reps: "15" },
-    { name: "Medizinball Rotationswurf", sets: 4, reps: "8 je Seite" }, { name: "Power Clean", sets: 5, reps: "3" },
+    { name: "Med-Ball Rotational Throw", sets: 4, reps: "8 per side" }, { name: "Power Clean", sets: 5, reps: "3" },
     { name: "Broad Jumps", sets: 4, reps: "5" }, { name: "Sprints", sets: 6, reps: "20 m" },
-    { name: "Plyo Liegestütz", sets: 3, reps: "8" }, { name: "Battle Rope Slams", sets: 4, reps: "20 Sek" },
+    { name: "Plyo Push-ups", sets: 3, reps: "8" }, { name: "Battle Rope Slams", sets: 4, reps: "20 sec" }
   ],
   conditioning: [
-    { name: "Bike Sprints (Rundenstruktur)", sets: 6, reps: "30 Sek / 90 Sek Pause" }, { name: "Burpees Runde", sets: 5, reps: "60 Sek" },
-    { name: "Schlittenschieben", sets: 6, reps: "20 m" }, { name: "Seilspringen Runde", sets: 5, reps: "3 Min" },
-    { name: "Rudergerät Intervalle", sets: 8, reps: "250 m" }, { name: "Schattenboxen mit Gewichtsweste", sets: 5, reps: "3 Min Runde" },
-    { name: "Zirkeltraining (Ropes / KB / Burpees)", sets: 4, reps: "1 Runde" },
+    { name: "Bike Sprints (round structure)", sets: 6, reps: "30 sec / 90 sec rest" }, { name: "Burpee Round", sets: 5, reps: "60 sec" },
+    { name: "Sled Push", sets: 6, reps: "20 m" }, { name: "Skipping Rope Round", sets: 5, reps: "3 min" },
+    { name: "Rower Intervals", sets: 8, reps: "250 m" }, { name: "Shadow Boxing with Weight Vest", sets: 5, reps: "3 min round" },
+    { name: "Circuit (ropes / KB / burpees)", sets: 4, reps: "1 round" }
   ],
   mmaSpecific: [
-    { name: "Reifen-Schläge (Vorschlaghammer)", sets: 4, reps: "30 Sek" }, { name: "Tire Flips", sets: 5, reps: "8" },
-    { name: "Sprawl-to-Sprint", sets: 5, reps: "30 Sek" }, { name: "Handtuch-Klimmzüge (Griffkraft)", sets: 3, reps: "Max" },
+    { name: "Sledgehammer Tire Strikes", sets: 4, reps: "30 sec" }, { name: "Tire Flips", sets: 5, reps: "8" },
+    { name: "Sprawl-to-Sprint", sets: 5, reps: "30 sec" }, { name: "Towel Pull-ups (grip)", sets: 3, reps: "Max" },
     { name: "Explosive Med-Ball Sprawls", sets: 4, reps: "10" }, { name: "Power Clean", sets: 4, reps: "3" },
-    { name: "Kettlebell Swings", sets: 4, reps: "15" },
-  ],
+    { name: "Kettlebell Swings", sets: 4, reps: "15" }
+  ]
 };
-
-function shuffleArr(arr) { return [...arr].sort(() => Math.random() - 0.5); }
-function pick(pool, n) { return shuffleArr(pool).slice(0, Math.min(n, pool.length)); }
+const shuffleArr = (a) => [...a].sort(() => Math.random() - 0.5);
+const pick = (pool, n) => shuffleArr(pool).slice(0, Math.min(n, pool.length));
 function generatePlan(goal, duration) {
   const count = duration <= 30 ? 3 : duration <= 45 ? 4 : duration <= 60 ? 6 : 8;
-  let exercises = [];
-  let warmup = POOLS.warmupStrength;
+  let exercises = [], warmup = POOLS.warmupStrength;
   if (goal === "strength") exercises = pick(POOLS.strength, count);
   else if (goal === "power") exercises = pick(POOLS.power, count);
   else if (goal === "conditioning") { exercises = pick(POOLS.conditioning, count); warmup = POOLS.warmupCond; }
-  else if (goal === "mma") exercises = pick([...POOLS.mmaSpecific, ...POOLS.power], count);
+  else exercises = pick([...POOLS.mmaSpecific, ...POOLS.power], count);
   return { warmup, exercises };
 }
 
-function toISO(d) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, "0"); const day = String(d.getDate()).padStart(2, "0"); return `${y}-${m}-${day}`; }
-function todayISO() { return toISO(new Date()); }
-function fmtShort(iso) { const d = new Date(iso + "T00:00:00"); return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" }); }
-function fmtLong(iso) { const d = new Date(iso + "T00:00:00"); return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "long" }); }
-function startOfWeekISO() { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return toISO(d); }
+/* ---------- dates ---------- */
+const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayISO = () => toISO(new Date());
+const yesterdayISO = () => { const d = new Date(); d.setDate(d.getDate() - 1); return toISO(d); };
+const fmtDayShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase();
+const fmtDateShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
+const fmtLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "long" });
 function startOfWeekDate(d) { const day = (d.getDay() + 6) % 7; const s = new Date(d); s.setDate(d.getDate() - day); s.setHours(0, 0, 0, 0); return s; }
+const startOfWeekISO = () => toISO(startOfWeekDate(new Date()));
 function buildLastNWeeks(n) {
-  const curStart = startOfWeekDate(new Date());
-  const weeks = [];
+  const cur = startOfWeekDate(new Date()), out = [];
   for (let i = n - 1; i >= 0; i--) {
-    const start = new Date(curStart); start.setDate(curStart.getDate() - i * 7);
-    const end = new Date(start); end.setDate(start.getDate() + 6);
-    weeks.push({ startISO: toISO(start), endISO: toISO(end), label: start.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) });
+    const s = new Date(cur); s.setDate(cur.getDate() - i * 7);
+    const e = new Date(s); e.setDate(s.getDate() + 6);
+    out.push({ startISO: toISO(s), endISO: toISO(e), label: s.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }) });
   }
-  return weeks;
+  return out;
 }
 function getMonthMatrix(year, month) {
   const first = new Date(year, month, 1);
   const startDay = (first.getDay() + 6) % 7;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const inMonth = new Date(year, month + 1, 0).getDate();
+  const inPrev = new Date(year, month, 0).getDate();
   const cells = [];
-  for (let i = startDay - 1; i >= 0; i--) cells.push({ date: new Date(year, month - 1, daysInPrevMonth - i), current: false });
-  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(year, month, d), current: true });
-  while (cells.length % 7 !== 0) { const last = cells[cells.length - 1].date; const next = new Date(last); next.setDate(last.getDate() + 1); cells.push({ date: next, current: false }); }
+  for (let i = startDay - 1; i >= 0; i--) cells.push({ date: new Date(year, month - 1, inPrev - i), current: false });
+  for (let d = 1; d <= inMonth; d++) cells.push({ date: new Date(year, month, d), current: true });
+  while (cells.length % 7 !== 0) { const l = cells[cells.length - 1].date; const n = new Date(l); n.setDate(l.getDate() + 1); cells.push({ date: n, current: false }); }
   return cells;
 }
-const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+const WEEKDAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
-function IconBtn({ onClick, children, title }) {
-  return <button onClick={onClick} title={title} className="flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 9999, border: `1px solid ${C.obsidian}`, background: "transparent", color: C.obsidian }}>{children}</button>;
+/* ---------- primitives ---------- */
+function Label({ T, children }) {
+  return <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, textTransform: "uppercase" }}>{children}</div>;
 }
-function Chip({ active, color, onClick, children }) {
-  return <button onClick={onClick} className="text-xs" style={{ borderRadius: 9999, padding: "8px 16px", fontWeight: 400, background: active ? color : "transparent", color: active ? textOn(color) : C.feltGray, border: `1px solid ${active ? color : C.hairline}`, transition: `all .3s ${EASE}` }}>{children}</button>;
-}
-function Field({ label, children }) {
-  return <label className="block"><span className="mb-2 block text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>{label}</span>{children}</label>;
-}
-const inputStyle = { background: C.paper, border: "1px solid rgba(0,0,0,0.35)", color: C.obsidian, borderRadius: 0 };
-const inputClass = "w-full px-3 py-2.5 text-sm outline-none";
-function TextInput(props) { return <input {...props} style={inputStyle} className={inputClass + " " + (props.className || "")} />; }
-function TextArea(props) { return <textarea {...props} style={inputStyle} className={inputClass + " " + (props.className || "")} />; }
-function PrimaryButton({ onClick, children, disabled, type = "button" }) {
-  return <button type={type} onClick={onClick} disabled={disabled} className="flex w-full items-center justify-center gap-2 text-sm disabled:opacity-40" style={{ background: C.slatePill, color: C.paper, border: `1px solid ${C.paper}`, borderRadius: 9999, padding: "12px 28px", fontWeight: 400 }}>{children}</button>;
-}
-function GhostButton({ onClick, children }) {
-  return <button onClick={onClick} className="flex items-center justify-center gap-2 text-sm" style={{ background: "transparent", color: C.obsidian, border: `1px solid ${C.obsidian}`, borderRadius: 9999, padding: "12px 28px", fontWeight: 400 }}>{children}</button>;
-}
-function TextLink({ onClick, children }) { return <button onClick={onClick} className="text-xs" style={{ color: C.feltGray, fontWeight: 400 }}>{children}</button>; }
-function EmptyState({ title, body }) {
-  return <div className="px-5 py-10 text-left" style={{ border: `1px solid ${C.hairline}` }}><p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>{title}</p><p className="mt-1 text-sm" style={{ color: C.feltGray }}>{body}</p></div>;
-}
-function IntensityDots({ value, onChange }) {
-  return <div className="flex items-center gap-1.5">{[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" onClick={() => onChange(n)} style={{ width: 22, height: 8, background: n <= value ? C.obsidian : "transparent", border: `1px solid ${n <= value ? C.obsidian : C.ashMist}` }} />)}</div>;
-}
-function IntensityDotsStatic({ value }) {
-  return <div className="flex items-center gap-1">{[1, 2, 3, 4, 5].map((n) => <span key={n} style={{ width: 14, height: 5, background: n <= value ? C.obsidian : "transparent", border: `1px solid ${n <= value ? C.obsidian : C.ashMist}` }} />)}</div>;
-}
-
-function SessionForm({ onSave, onCancel }) {
-  const [discipline, setDiscipline] = useState("mma");
-  const [date, setDate] = useState(todayISO());
-  const [duration, setDuration] = useState(60);
-  const [intensity, setIntensity] = useState(3);
-  const [didWell, setDidWell] = useState("");
-  const [toImprove, setToImprove] = useState("");
-  const [notes, setNotes] = useState("");
-  const submit = () => onSave({ id: uid(), discipline, date, duration: Number(duration) || 0, intensity, didWell: didWell.trim(), toImprove: toImprove.trim(), notes: notes.trim(), createdAt: Date.now() });
+function Chip({ T, active, onClick, children, grow }) {
   return (
-    <div className="space-y-5 p-5" style={{ border: `1px solid ${C.obsidian}` }}>
-      <div className="flex items-center justify-between">
-        <p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Neuer Eintrag</p>
-        <button onClick={onCancel}><Icon name="x" size={18} color={C.feltGray} /></button>
-      </div>
-      <Field label="Disziplin"><div className="flex flex-wrap gap-2">{DISCIPLINES.map((d) => <Chip key={d.key} active={discipline === d.key} color={d.color} onClick={() => setDiscipline(d.key)}>{d.label}</Chip>)}</div></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Datum"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <Field label="Dauer (Min)"><TextInput type="number" min="0" value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>
-      </div>
-      <Field label="Intensität"><IntensityDots value={intensity} onChange={setIntensity} /></Field>
-      <Field label="Was wurde gemacht (Techniken / Drills)"><TextArea rows={2} placeholder="z.B. Leg Kick Kombinationen, Sparring 5 Runden, Takedown-Ketten" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
-      <Field label="Was ist gut gelaufen"><TextArea rows={2} placeholder="Was hat funktioniert?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></Field>
-      <Field label="Was verbessert werden muss"><TextArea rows={2} placeholder="Woran musst du arbeiten?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></Field>
-      <PrimaryButton onClick={submit}><Icon name="save" size={16} /> Eintrag speichern</PrimaryButton>
+    <button onClick={onClick} style={{
+      border: `1px solid ${T.fg}`, background: active ? T.fg : "transparent", color: active ? T.bg : T.fg,
+      font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.06em", textTransform: "uppercase",
+      padding: "13px 12px", flex: grow ? 1 : "none", whiteSpace: "nowrap", borderRadius: 0
+    }}>{children}</button>
+  );
+}
+function SmallChip({ T, active, onClick, children }) {
+  return (
+    <button onClick={onClick} className="fl-mono" style={{
+      flex: 1, border: `1px solid ${active ? T.fg : T.rule}`, background: active ? T.fg : "transparent",
+      color: active ? T.bg : T.fg, fontSize: 10, padding: "11px 0", borderRadius: 0
+    }}>{children}</button>
+  );
+}
+function Primary({ T, onClick, children, type }) {
+  return (
+    <button type={type || "button"} onClick={onClick} style={{
+      width: "100%", background: T.fg, color: T.bg, border: "none", borderRadius: 0, height: 56,
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+      font: "600 13px/1 Archivo, sans-serif", letterSpacing: "0.14em", textTransform: "uppercase"
+    }}>{children}</button>
+  );
+}
+function Ghost({ T, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{
+      flex: 1, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0, height: 52,
+      display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+      font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase"
+    }}>{children}</button>
+  );
+}
+function Input({ T, style, ...rest }) {
+  return <input {...rest} style={{
+    width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
+    border: `1px solid ${T.rule}`, borderRadius: 0, padding: "13px 12px", fontSize: 15, outline: "none",
+    colorScheme: T.bg === "#0e0d0c" ? "dark" : "light", ...style
+  }} />;
+}
+function Area({ T, ...rest }) {
+  return <textarea {...rest} style={{
+    width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
+    border: `1px solid ${T.rule}`, borderRadius: 0, padding: "11px 12px", fontSize: 15, outline: "none", resize: "none"
+  }} />;
+}
+function Empty({ T, title, body }) {
+  return (
+    <div style={{ border: `1px solid ${T.rule}`, padding: "26px 18px" }}>
+      <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{title}</div>
+      <div style={{ fontSize: 13, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>{body}</div>
+    </div>
+  );
+}
+function RpeRow({ T, value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 7 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button key={n} onClick={() => onChange(n)} className="fl-mono" style={{
+          flex: 1, border: `1px solid ${T.fg}`, background: n <= value ? T.fg : "transparent",
+          color: n <= value ? T.bg : T.muted, fontSize: 17, fontWeight: 600, padding: "15px 0", borderRadius: 0
+        }}>{n}</button>
+      ))}
+    </div>
+  );
+}
+function RpeBars({ T, value }) {
+  return (
+    <div style={{ display: "flex", gap: 3 }}>
+      {[1, 2, 3, 4, 5].map((n) => <span key={n} style={{ width: 18, height: 4, background: n <= value ? T.fg : T.rule }} />)}
     </div>
   );
 }
 
-function SessionCard({ session, onDelete }) {
+/* ---------- session form ---------- */
+function SessionForm({ T, onSave, onCancel, last }) {
+  const [discipline, setDiscipline] = useState(last ? last.discipline : "mma");
+  const [date, setDate] = useState(todayISO());
+  const [duration, setDuration] = useState(last ? last.duration : 90);
+  const [intensity, setIntensity] = useState(4);
+  const [notes, setNotes] = useState("");
+  const [didWell, setDidWell] = useState("");
+  const [toImprove, setToImprove] = useState("");
+  const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
+  const submit = () => onSave({
+    id: uid(), discipline, date, duration: Number(duration) || 0, intensity,
+    notes: notes.trim(), didWell: didWell.trim(), toImprove: toImprove.trim(), createdAt: Date.now()
+  });
+  const repeat = () => { if (!last) return; setDiscipline(last.discipline); setDuration(last.duration); setIntensity(last.intensity); };
+  return (
+    <div style={{ borderTop: `2px solid ${T.fg}`, marginTop: 4 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 0 0" }}>
+        <div style={{ font: "700 22px/1 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>New session</div>
+        <button onClick={onCancel} style={{ background: "none", border: "none", color: T.muted, padding: 6 }}><Icon name="x" size={20} /></button>
+      </div>
+
+      {last && (
+        <button onClick={repeat} className="fl-mono" style={{
+          width: "100%", marginTop: 14, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
+          height: 44, fontSize: 11, letterSpacing: "0.12em", borderRadius: 0, textTransform: "uppercase"
+        }}>↻ Repeat: {getDiscipline(last.discipline).label} {last.duration}′</button>
+      )}
+
+      <div style={{ marginTop: 18 }}><Label T={T}>Discipline</Label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+          {DISCIPLINES.map((d) => <Chip key={d.key} T={T} active={discipline === d.key} onClick={() => setDiscipline(d.key)}>{d.label}</Chip>)}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}><Label T={T}>Date</Label>
+        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+          <SmallChip T={T} active={date === todayISO()} onClick={() => setDate(todayISO())}>TODAY</SmallChip>
+          <SmallChip T={T} active={date === yesterdayISO()} onClick={() => setDate(yesterdayISO())}>YESTERDAY</SmallChip>
+          <div style={{ flex: 1.4 }}><Input T={T} type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ padding: "9px 10px", fontSize: 13 }} /></div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}><Label T={T}>Duration</Label>
+        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+          <button onClick={() => step(-15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>–</button>
+          <div style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0" }}>
+            <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
+            <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
+          </div>
+          <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
+        </div>
+        <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+          {[45, 60, 90, 120].map((d) => <SmallChip key={d} T={T} active={Number(duration) === d} onClick={() => setDuration(d)}>{d} MIN</SmallChip>)}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}><Label T={T}>Intensity · RPE</Label>
+        <div style={{ marginTop: 11 }}><RpeRow T={T} value={intensity} onChange={setIntensity} /></div>
+      </div>
+
+      <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div><Label T={T}>What you drilled</Label>
+          <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="Underhook chains, snap downs, 5 live goes" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
+        <div><Label T={T}>Went well</Label>
+          <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
+        <div><Label T={T}>Fix next time</Label>
+          <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What needs work?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></div></div>
+      </div>
+
+      <div style={{ marginTop: 18 }}><Primary T={T} onClick={submit}>Save session</Primary></div>
+    </div>
+  );
+}
+
+/* ---------- log ---------- */
+function SessionRow({ T, session, onDelete }) {
   const [open, setOpen] = useState(false);
   const disc = getDiscipline(session.discipline);
   return (
-    <div style={{ border: `1px solid ${C.hairline}` }}>
-      <div className="flex" style={{ borderLeft: `5px solid ${disc.color}` }}>
-        <button className="flex-1 p-4 text-left" onClick={() => setOpen((o) => !o)}>
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wide" style={{ color: disc.color === C.ashMist ? C.feltGray : disc.color }}>{disc.label}</span>
-            <span className="fl-mono text-xs" style={{ color: C.feltGray }}>{fmtShort(session.date)} · {session.duration} MIN</span>
+    <div style={{ borderBottom: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", background: "transparent", border: "none", padding: 0, textAlign: "left" }}>
+        <div style={{ width: 62, flex: "none", padding: "14px 0", borderRight: `1px solid ${T.rule}` }}>
+          <div className="fl-mono" style={{ fontSize: 12, fontWeight: 600, color: T.fg }}>{fmtDayShort(session.date)}</div>
+          <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{fmtDateShort(session.date)}</div>
+        </div>
+        <div style={{ flex: 1, padding: "14px 0 14px 14px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted }}>{disc.label}</div>
+            <div className="fl-mono" style={{ fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>
           </div>
-          <div className="mt-2 flex items-center gap-3">
-            <IntensityDotsStatic value={session.intensity} />
-            {session.didWell && <p className="truncate text-sm" style={{ color: C.obsidian }}>{session.didWell}</p>}
-          </div>
-        </button>
-      </div>
+          {(session.notes || session.didWell) && !open && (
+            <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {session.notes || session.didWell}
+            </div>
+          )}
+          <div style={{ marginTop: 10 }}><RpeBars T={T} value={session.intensity} /></div>
+        </div>
+      </button>
       {open && (
-        <div className="space-y-3 px-4 pb-5 pt-1 text-sm" style={{ color: C.obsidian }}>
-          {session.notes && <div><p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Was gemacht wurde</p><p className="mt-0.5">{session.notes}</p></div>}
-          {session.didWell && <div><p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Lief gut</p><p className="mt-0.5">{session.didWell}</p></div>}
-          {session.toImprove && <div><p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Verbessern</p><p className="mt-0.5">{session.toImprove}</p></div>}
-          <button onClick={() => onDelete(session.id)} className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: C.obsidian }}><Icon name="trash" size={14} /> Löschen</button>
+        <div style={{ padding: "0 0 16px 76px", display: "flex", flexDirection: "column", gap: 12 }}>
+          {[["What you drilled", session.notes], ["Went well", session.didWell], ["Fix next time", session.toImprove]]
+            .filter(([, v]) => v).map(([l, v]) => (
+              <div key={l}><Label T={T}>{l}</Label>
+                <div style={{ fontSize: 14, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{v}</div></div>
+            ))}
+          <button onClick={() => onDelete(session.id)} className="fl-mono" style={{
+            alignSelf: "flex-start", background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
+            borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
+          }}><Icon name="trash" size={14} /> DELETE</button>
         </div>
       )}
     </div>
   );
 }
 
-function LogView({ sessions, addSession, deleteSession }) {
+function LogView({ T, sessions, addSession, deleteSession }) {
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState("all");
-  const filtered = useMemo(() => { const list = filter === "all" ? sessions : sessions.filter((s) => s.discipline === filter); return [...list].sort((a, b) => (a.date < b.date ? 1 : -1) || b.createdAt - a.createdAt); }, [sessions, filter]);
+  const sorted = useMemo(() => [...sessions].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt)), [sessions]);
+  const filtered = filter === "all" ? sorted : sorted.filter((s) => s.discipline === filter);
   const stats = useMemo(() => {
-    const weekStart = startOfWeekISO();
-    const thisWeek = sessions.filter((s) => s.date >= weekStart).length;
+    const ws = startOfWeekISO();
     const counts = {};
     sessions.forEach((s) => (counts[s.discipline] = (counts[s.discipline] || 0) + 1));
     const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    return { total: sessions.length, week: thisWeek, top: top ? getDiscipline(top[0]).label : "–" };
+    return { total: sessions.length, week: sessions.filter((s) => s.date >= ws).length, top: top ? getDiscipline(top[0]).label : "–" };
   }, [sessions]);
+
   return (
-    <div className="space-y-6 pb-6">
-      <div className="grid grid-cols-3" style={{ border: `1px solid ${C.hairline}` }}>
-        {[{ label: "Gesamt", value: stats.total }, { label: "Diese Woche", value: stats.week }, { label: "Top", value: stats.top, small: true }].map((s, i) => (
-          <div key={s.label} className="p-3 text-left" style={{ borderLeft: i > 0 ? `1px solid ${C.hairline}` : "none" }}>
-            <p className={"fl-mono " + (s.small ? "text-sm" : "text-xl")} style={{ color: C.obsidian }}>{s.value}</p>
-            <p className="text-[10px] uppercase tracking-wide" style={{ color: C.feltGray }}>{s.label}</p>
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: `1px solid ${T.rule}` }}>
+        {[{ v: stats.total, l: "SESSIONS" }, { v: stats.week, l: "THIS WEEK" }, { v: stats.top, l: "MOST LOGGED", txt: true }].map((s, i) => (
+          <div key={s.l} style={{ padding: "16px 14px", borderLeft: i > 0 ? `1px solid ${T.rule}` : "none" }}>
+            {s.txt
+              ? <div style={{ font: "600 17px/0.9 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, paddingTop: 12 }}>{s.v}</div>
+              : <div className="fl-mono" style={{ fontSize: 34, lineHeight: 0.85, fontWeight: 600, color: T.fg }}>{s.v}</div>}
+            <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, marginTop: 9 }}>{s.l}</div>
           </div>
         ))}
       </div>
-      {!showForm && <PrimaryButton onClick={() => setShowForm(true)}><Icon name="plus" size={16} /> Training eintragen</PrimaryButton>}
-      {showForm && <SessionForm onCancel={() => setShowForm(false)} onSave={(s) => { addSession(s); setShowForm(false); }} />}
-      <div className="flex flex-wrap gap-2">
-        <Chip active={filter === "all"} color={C.obsidian} onClick={() => setFilter("all")}>Alle</Chip>
-        {DISCIPLINES.map((d) => <Chip key={d.key} active={filter === d.key} color={d.color} onClick={() => setFilter(d.key)}>{d.label}</Chip>)}
-      </div>
-      {filtered.length === 0 ? <EmptyState title="Noch keine Einträge" body="Dein erstes Training wartet auf Notizen. Trag es oben ein." /> : <div className="space-y-3">{filtered.map((s) => <SessionCard key={s.id} session={s} onDelete={deleteSession} />)}</div>}
+
+      {!showForm && (
+        <div style={{ padding: "14px 0 12px" }}>
+          <Primary T={T} onClick={() => setShowForm(true)}><span style={{ fontSize: 19, lineHeight: 1 }}>+</span> Log session</Primary>
+        </div>
+      )}
+      {showForm && (
+        <SessionForm T={T} last={sorted[0]} onCancel={() => setShowForm(false)}
+          onSave={(s) => { addSession(s); setShowForm(false); }} />
+      )}
+
+      {!showForm && (
+        <div className="fl-scroll-x" style={{ display: "flex", gap: 6, paddingBottom: 14 }}>
+          <Chip T={T} active={filter === "all"} onClick={() => setFilter("all")}>All</Chip>
+          {DISCIPLINES.map((d) => <Chip key={d.key} T={T} active={filter === d.key} onClick={() => setFilter(d.key)}>{d.label}</Chip>)}
+        </div>
+      )}
+
+      {!showForm && (filtered.length === 0
+        ? <Empty T={T} title="No sessions yet" body="Log the session you just finished — discipline, minutes, RPE. Notes are optional." />
+        : <div style={{ borderTop: `1px solid ${T.rule}` }}>
+            {filtered.map((s) => <SessionRow key={s.id} T={T} session={s} onDelete={deleteSession} />)}
+          </div>)}
     </div>
   );
 }
 
-function EventForm({ date, onSave, onCancel }) {
+/* ---------- calendar ---------- */
+function EventForm({ T, date, onSave, onCancel }) {
   const [type, setType] = useState("training");
   const [title, setTitle] = useState("");
   const [time, setTime] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
-  const submit = () => { if (!title.trim()) return; onSave({ id: uid(), date, type, title: title.trim(), time: time.trim(), location: location.trim(), notes: notes.trim(), createdAt: Date.now() }); };
+  const submit = () => { if (!title.trim()) return; onSave({ id: uid(), date, type, title: title.trim(), time, location: location.trim(), notes: notes.trim(), createdAt: Date.now() }); };
   return (
-    <div className="space-y-4 p-5" style={{ border: `1px solid ${C.obsidian}` }}>
-      <Field label="Art"><div className="flex flex-wrap gap-2">{EVENT_TYPES.map((t) => <Chip key={t.key} active={type === t.key} color={t.color} onClick={() => setType(t.key)}>{t.label}</Chip>)}</div></Field>
-      <Field label="Titel"><TextInput placeholder="z.B. Sparring Camp, Landesmeisterschaft" value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Uhrzeit"><TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} /></Field>
-        <Field label="Ort"><TextInput placeholder="Gym / Halle" value={location} onChange={(e) => setLocation(e.target.value)} /></Field>
+    <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 16, marginTop: 8 }}>
+      <Label T={T}>Type</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+        {EVENT_TYPES.map((t) => <Chip key={t.key} T={T} active={type === t.key} onClick={() => setType(t.key)}>{t.label}</Chip>)}
       </div>
-      <Field label="Notizen"><TextArea rows={2} placeholder="Details, Gewichtsklasse, Ansprechpartner …" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
-      <div className="flex gap-2"><GhostButton onClick={onCancel}>Abbrechen</GhostButton><PrimaryButton onClick={submit}>Speichern</PrimaryButton></div>
+      <div style={{ marginTop: 14 }}><Label T={T}>Title</Label>
+        <div style={{ marginTop: 8 }}><Input T={T} placeholder="Sparring camp, regional open …" value={title} onChange={(e) => setTitle(e.target.value)} /></div></div>
+      <div style={{ display: "flex", gap: 7, marginTop: 14 }}>
+        <div style={{ flex: 1 }}><Label T={T}>Time</Label><div style={{ marginTop: 8 }}><Input T={T} type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div></div>
+        <div style={{ flex: 1 }}><Label T={T}>Place</Label><div style={{ marginTop: 8 }}><Input T={T} placeholder="Gym / hall" value={location} onChange={(e) => setLocation(e.target.value)} /></div></div>
+      </div>
+      <div style={{ marginTop: 14 }}><Label T={T}>Notes</Label>
+        <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="Weight class, contact, details" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
+      <div style={{ display: "flex", gap: 7, marginTop: 14 }}>
+        <Ghost T={T} onClick={onCancel}>Cancel</Ghost>
+        <div style={{ flex: 1 }}><Primary T={T} onClick={submit}>Save</Primary></div>
+      </div>
     </div>
   );
 }
 
-function CalendarView({ events, addEvent, deleteEvent }) {
+function CalendarView({ T, events, addEvent, deleteEvent }) {
   const now = new Date();
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [selected, setSelected] = useState(todayISO());
   const [showForm, setShowForm] = useState(false);
   const cells = useMemo(() => getMonthMatrix(cursor.y, cursor.m), [cursor]);
-  const eventsByDate = useMemo(() => { const map = {}; events.forEach((e) => { if (!map[e.date]) map[e.date] = []; map[e.date].push(e); }); return map; }, [events]);
-  const selectedEvents = (eventsByDate[selected] || []).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const byDate = useMemo(() => { const m = {}; events.forEach((e) => { (m[e.date] = m[e.date] || []).push(e); }); return m; }, [events]);
+  const dayEvents = (byDate[selected] || []).slice().sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const upcoming = useMemo(() => events.filter((e) => e.date >= todayISO() && (e.type === "competition" || e.type === "tournament"))
+    .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 2), [events]);
+
   return (
-    <div className="space-y-6 pb-6">
-      <div className="p-4" style={{ border: `1px solid ${C.hairline}` }}>
-        <div className="mb-4 flex items-center justify-between">
-          <IconBtn title="Vorheriger Monat" onClick={() => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))}><Icon name="chevronLeft" size={18} /></IconBtn>
-          <p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>{MONTHS[cursor.m]} <span className="fl-mono text-sm">{cursor.y}</span></p>
-          <IconBtn title="Nächster Monat" onClick={() => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))}><Icon name="chevronRight" size={18} /></IconBtn>
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 14, borderBottom: `1px solid ${T.rule}` }}>
+        <button onClick={() => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))}
+          style={{ width: 40, height: 40, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="left" /></button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ font: "700 24px/0.9 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>{MONTHS[cursor.m]}</div>
+          <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.18em", color: T.muted, marginTop: 7 }}>{cursor.y}</div>
         </div>
-        <div className="grid grid-cols-7 gap-1">
-          {WEEKDAYS.map((w) => <div key={w} className="fl-mono py-1 text-center text-[10px]" style={{ color: C.feltGray }}>{w}</div>)}
-          {cells.map(({ date, current }, i) => {
-            const iso = toISO(date);
-            const dayEvents = eventsByDate[iso] || [];
-            const isSelected = iso === selected;
-            const isToday = iso === todayISO();
-            return (
-              <button key={i} onClick={() => { setSelected(iso); setShowForm(false); }} className="flex flex-col items-center justify-center gap-1 py-1.5" style={{ opacity: current ? 1 : 0.3, background: isSelected ? C.obsidian : "transparent", border: isToday && !isSelected ? `1px solid ${C.obsidian}` : "1px solid transparent" }}>
-                <span className="fl-mono text-xs" style={{ color: isSelected ? C.paper : C.obsidian }}>{date.getDate()}</span>
-                <div className="flex h-1.5 items-center gap-0.5">{dayEvents.slice(0, 3).map((e) => <span key={e.id} style={{ width: 4, height: 4, borderRadius: 999, background: isSelected ? C.paper : getEventType(e.type).color }} />)}</div>
-              </button>
-            );
-          })}
-        </div>
+        <button onClick={() => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))}
+          style={{ width: 40, height: 40, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="right" /></button>
       </div>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="fl-heading text-base" style={{ color: C.obsidian, fontWeight: 400 }}>{fmtLong(selected)}</p>
-          {!showForm && <TextLink onClick={() => setShowForm(true)}><span className="flex items-center gap-1"><Icon name="plus" size={14} /> Termin</span></TextLink>}
-        </div>
-        {showForm && <EventForm date={selected} onCancel={() => setShowForm(false)} onSave={(e) => { addEvent(e); setShowForm(false); }} />}
-        {selectedEvents.length === 0 && !showForm ? <EmptyState title="Keine Termine" body="An diesem Tag ist noch nichts eingetragen." /> : (
-          <div className="space-y-2">
-            {selectedEvents.map((e) => {
-              const t = getEventType(e.type);
-              return (
-                <div key={e.id} className="flex items-start gap-3 p-4" style={{ border: `1px solid ${C.hairline}` }}>
-                  <span className="mt-1.5 h-2 w-2 shrink-0" style={{ background: t.color, borderRadius: 999 }} />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between"><p className="text-sm" style={{ color: C.obsidian, fontWeight: 400 }}>{e.title}</p>{e.time && <span className="fl-mono text-xs" style={{ color: C.feltGray }}>{e.time}</span>}</div>
-                    <p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>{t.label}</p>
-                    {e.location && <p className="mt-0.5 text-xs" style={{ color: C.feltGray }}>{e.location}</p>}
-                    {e.notes && <p className="mt-1 text-sm" style={{ color: C.obsidian }}>{e.notes}</p>}
-                  </div>
-                  <button onClick={() => deleteEvent(e.id)}><Icon name="trash" size={14} color={C.feltGray} /></button>
-                </div>
-              );
-            })}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginTop: 10 }}>
+        {WEEKDAYS.map((w) => <div key={w} className="fl-mono" style={{ textAlign: "center", fontSize: 9, letterSpacing: "0.1em", color: T.muted, padding: "8px 0" }}>{w}</div>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+        {cells.map(({ date, current }, i) => {
+          const iso = toISO(date);
+          const evs = byDate[iso] || [];
+          const sel = iso === selected;
+          const isToday = iso === todayISO();
+          return (
+            <button key={i} onClick={() => { setSelected(iso); setShowForm(false); }} style={{
+              height: 44, background: sel ? T.fg : "transparent", border: isToday && !sel ? `1px solid ${T.fg}` : "1px solid transparent",
+              borderRadius: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, padding: 0
+            }}>
+              <span className="fl-mono" style={{ fontSize: 13, color: sel ? T.bg : current ? T.fg : T.rule }}>{date.getDate()}</span>
+              <span style={{ display: "flex", gap: 3, height: 4 }}>
+                {evs.slice(0, 3).map((e) => <span key={e.id} style={{
+                  width: 4, height: 4, background: sel ? T.bg : (e.type === "competition" || e.type === "tournament") ? T.accent : T.fg
+                }} />)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "20px 0 10px", borderBottom: `1px solid ${T.rule}` }}>
+        <div style={{ font: "600 16px/1 Archivo, sans-serif", letterSpacing: "0.04em", textTransform: "uppercase", color: T.fg }}>{fmtLong(selected)}</div>
+        <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{dayEvents.length} {dayEvents.length === 1 ? "ENTRY" : "ENTRIES"}</div>
+      </div>
+
+      {dayEvents.map((e) => (
+        <div key={e.id} style={{ display: "flex", gap: 14, padding: "14px 0", borderBottom: `1px solid ${T.rule}` }}>
+          <div className="fl-mono" style={{ width: 46, flex: "none", fontSize: 13, fontWeight: 600, color: T.fg, paddingTop: 2 }}>{e.time || "—"}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: (e.type === "competition" || e.type === "tournament") ? T.accent : T.fg }}>{e.title}</div>
+            {e.location && <div style={{ fontSize: 12, lineHeight: 1.3, color: T.body, marginTop: 6 }}>{e.location}</div>}
+            {e.notes && <div style={{ fontSize: 13, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{e.notes}</div>}
           </div>
-        )}
-      </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
+            <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: T.muted, textTransform: "uppercase" }}>{getEventType(e.type).label}</span>
+            <button onClick={() => deleteEvent(e.id)} style={{ background: "none", border: "none", color: T.muted, padding: 0 }}><Icon name="trash" size={14} /></button>
+          </div>
+        </div>
+      ))}
+      {dayEvents.length === 0 && !showForm && (
+        <div style={{ padding: "16px 0" }}><Empty T={T} title="Nothing scheduled" body="Add training, a seminar, a tournament or a fight for this day." /></div>
+      )}
+
+      {showForm
+        ? <EventForm T={T} date={selected} onCancel={() => setShowForm(false)} onSave={(e) => { addEvent(e); setShowForm(false); }} />
+        : <div style={{ padding: "14px 0 0" }}><Primary T={T} onClick={() => setShowForm(true)}><span style={{ fontSize: 19 }}>+</span> New event</Primary></div>}
+
+      {upcoming.length > 0 && !showForm && (
+        <div style={{ marginTop: 22 }}>
+          <Label T={T}>Upcoming</Label>
+          {upcoming.map((e) => (
+            <div key={e.id} style={{ display: "flex", gap: 14, padding: "12px 0", borderTop: `1px solid ${T.rule}`, marginTop: 8 }}>
+              <div className="fl-mono" style={{ width: 56, flex: "none", fontSize: 11, fontWeight: 600, color: T.accent, paddingTop: 3 }}>{fmtDateShort(e.date)}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{e.title}</div>
+                {e.location && <div style={{ fontSize: 12, color: T.body, marginTop: 6 }}>{e.location}</div>}
+              </div>
+              <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: T.accent, paddingTop: 3, textTransform: "uppercase" }}>{getEventType(e.type).label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function StrengthView({ plans, addPlan, deletePlan }) {
+/* ---------- strength & conditioning ---------- */
+function PlanRow({ T, plan, onDelete }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderTop: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: "13px 0", textAlign: "left" }}>
+        <div>
+          <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{plan.name}</div>
+          <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>
+            {plan.exercises.length} EXERCISES{plan.duration ? ` · ${plan.duration} MIN` : ""}
+          </div>
+        </div>
+        <span style={{ fontSize: 18, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+      </button>
+      {open && (
+        <div style={{ paddingBottom: 14, display: "flex", flexDirection: "column", gap: 9 }}>
+          {plan.exercises.map((ex, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <span style={{ fontSize: 14, color: T.fg }}>{ex.name}</span>
+              <span className="fl-mono" style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>{ex.sets} × {ex.reps}</span>
+            </div>
+          ))}
+          <button onClick={() => onDelete(plan.id)} className="fl-mono" style={{
+            alignSelf: "flex-start", marginTop: 4, background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
+            borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
+          }}><Icon name="trash" size={14} /> DELETE</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StrengthView({ T, plans, addPlan, deletePlan }) {
   const [goal, setGoal] = useState("mma");
   const [duration, setDuration] = useState(45);
   const [draft, setDraft] = useState(null);
   const [planName, setPlanName] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
-  const [manualExercises, setManualExercises] = useState([]);
-  const [mName, setMName] = useState("");
-  const [mSets, setMSets] = useState("");
-  const [mReps, setMReps] = useState("");
-  const roll = () => { const p = generatePlan(goal, duration); setDraft(p); setPlanName(`${GOALS.find((g) => g.key === goal).label} · ${duration} Min`); };
-  const removeFromDraft = (idx) => setDraft((d) => ({ ...d, exercises: d.exercises.filter((_, i) => i !== idx) }));
-  const savePlan = () => { if (!draft || draft.exercises.length === 0) return; addPlan({ id: uid(), name: planName.trim() || "Trainingsplan", goal, duration, exercises: [draft.warmup, ...draft.exercises], createdAt: Date.now() }); setDraft(null); setPlanName(""); };
-  const addManualExercise = () => { if (!mName.trim()) return; setManualExercises((list) => [...list, { name: mName.trim(), sets: mSets || "-", reps: mReps || "-" }]); setMName(""); setMSets(""); setMReps(""); };
-  const saveManualPlan = () => { if (manualExercises.length === 0) return; addPlan({ id: uid(), name: planName.trim() || "Eigener Plan", goal: "custom", duration: null, exercises: manualExercises, createdAt: Date.now() }); setManualExercises([]); setPlanName(""); setManualOpen(false); };
+  const [manual, setManual] = useState([]);
+  const [mName, setMName] = useState(""), [mSets, setMSets] = useState(""), [mReps, setMReps] = useState("");
+
+  const roll = () => { setDraft(generatePlan(goal, duration)); setPlanName(`${GOALS.find((g) => g.key === goal).label} · ${duration} min`); };
+  const save = () => {
+    if (!draft || draft.exercises.length === 0) return;
+    addPlan({ id: uid(), name: planName.trim() || "Plan", goal, duration, exercises: [draft.warmup, ...draft.exercises], createdAt: Date.now() });
+    setDraft(null); setPlanName("");
+  };
+  const addManual = () => { if (!mName.trim()) return; setManual((l) => [...l, { name: mName.trim(), sets: mSets || "-", reps: mReps || "-" }]); setMName(""); setMSets(""); setMReps(""); };
+  const saveManual = () => {
+    if (manual.length === 0) return;
+    addPlan({ id: uid(), name: planName.trim() || "Custom plan", goal: "custom", duration: null, exercises: manual, createdAt: Date.now() });
+    setManual([]); setPlanName(""); setManualOpen(false);
+  };
+
   return (
-    <div className="space-y-6 pb-6">
-      <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
-        <p className="fl-heading mb-4 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Plan generieren</p>
-        <Field label="Ziel"><div className="flex flex-wrap gap-2">{GOALS.map((g) => <Chip key={g.key} active={goal === g.key} color={C.obsidian} onClick={() => setGoal(g.key)}>{g.label}</Chip>)}</div></Field>
-        <div className="mt-4"><Field label="Dauer"><div className="flex flex-wrap gap-2">{[30, 45, 60, 90].map((d) => <Chip key={d} active={duration === d} color={C.slatePill} onClick={() => setDuration(d)}>{d} Min</Chip>)}</div></Field></div>
-        <div className="mt-5"><PrimaryButton onClick={roll}><Icon name="shuffle" size={16} /> Plan generieren</PrimaryButton></div>
-        {draft && (
-          <div className="mt-5 space-y-2 pt-5" style={{ borderTop: `1px solid ${C.hairline}` }}>
-            <div className="p-3" style={{ border: `1px solid ${C.hairline}` }}>
-              <p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Aufwärmen</p>
-              <div className="flex items-center justify-between text-sm" style={{ color: C.obsidian }}><span>{draft.warmup.name}</span><span className="fl-mono text-xs" style={{ color: C.feltGray }}>{draft.warmup.reps}</span></div>
+    <div>
+      <Label T={T}>Goal</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+        {GOALS.map((g) => <Chip key={g.key} T={T} active={goal === g.key} onClick={() => setGoal(g.key)}>{g.label}</Chip>)}
+      </div>
+      <div style={{ marginTop: 18 }}><Label T={T}>Minutes</Label>
+        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+          {[30, 45, 60, 90].map((d) => (
+            <button key={d} onClick={() => setDuration(d)} className="fl-mono" style={{
+              flex: 1, border: `1px solid ${T.fg}`, background: duration === d ? T.fg : "transparent",
+              color: duration === d ? T.bg : T.fg, fontSize: 15, fontWeight: 600, padding: "14px 0", borderRadius: 0
+            }}>{d}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{ margin: "16px 0 14px", paddingBottom: 14, borderBottom: `1px solid ${T.rule}` }}>
+        <Primary T={T} onClick={roll}><Icon name="shuffle" size={16} /> Generate plan</Primary>
+      </div>
+
+      {draft && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Draft</div>
+            <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{draft.exercises.length + 1} EXERCISES</div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, color: T.muted }}>{draft.warmup.name}</div>
+                <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{draft.warmup.reps}</div>
+              </div>
             </div>
             {draft.exercises.map((ex, i) => (
-              <div key={i} className="flex items-center justify-between p-3" style={{ border: `1px solid ${C.hairline}` }}>
-                <div className="text-sm" style={{ color: C.obsidian }}><p style={{ fontWeight: 400 }}>{ex.name}</p><p className="fl-mono text-xs" style={{ color: C.feltGray }}>{ex.sets} × {ex.reps}</p></div>
-                <button onClick={() => removeFromDraft(i)}><Icon name="x" size={16} color={C.feltGray} /></button>
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, color: T.fg }}>{ex.name}</div>
+                  <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{ex.sets} × {ex.reps}</div>
+                </div>
+                <button onClick={() => setDraft((d) => ({ ...d, exercises: d.exercises.filter((_, idx) => idx !== i) }))}
+                  style={{ width: 34, height: 34, border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon name="x" size={15} />
+                </button>
               </div>
             ))}
-            <TextInput placeholder="Name für diesen Plan" value={planName} onChange={(e) => setPlanName(e.target.value)} />
-            <div className="flex gap-2"><GhostButton onClick={roll}><Icon name="shuffle" size={14} /> Neu mischen</GhostButton><PrimaryButton onClick={savePlan}><Icon name="save" size={16} /> Plan speichern</PrimaryButton></div>
           </div>
-        )}
-      </div>
-      <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
-        <button className="flex w-full items-center justify-between" onClick={() => setManualOpen((o) => !o)}>
-          <p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Eigenen Plan erstellen</p>
-          <Icon name="plus" size={18} color={C.feltGray} style={{ transform: manualOpen ? "rotate(45deg)" : "none" }} />
+          <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={planName} onChange={(e) => setPlanName(e.target.value)} /></div>
+          <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
+            <Ghost T={T} onClick={roll}><Icon name="shuffle" size={14} /> Reshuffle</Ghost>
+            <div style={{ flex: 1 }}><button onClick={save} style={{
+              width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0,
+              font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase"
+            }}>Save plan</button></div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ borderTop: `1px solid ${T.rule}`, paddingTop: 14 }}>
+        <button onClick={() => setManualOpen((o) => !o)} style={{
+          display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+          background: "transparent", border: "none", padding: 0, color: T.fg
+        }}>
+          <span style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase" }}>Build your own</span>
+          <span style={{ fontSize: 18, color: T.muted, transform: manualOpen ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
         </button>
         {manualOpen && (
-          <div className="mt-4 space-y-3">
-            <div className="grid grid-cols-3 gap-2">
-              <TextInput placeholder="Übung" value={mName} onChange={(e) => setMName(e.target.value)} className="col-span-3" />
-              <TextInput placeholder="Sätze" value={mSets} onChange={(e) => setMSets(e.target.value)} />
-              <TextInput placeholder="Wdh." value={mReps} onChange={(e) => setMReps(e.target.value)} className="col-span-2" />
+          <div style={{ marginTop: 12 }}>
+            <Input T={T} placeholder="Exercise" value={mName} onChange={(e) => setMName(e.target.value)} />
+            <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+              <div style={{ flex: 1 }}><Input T={T} placeholder="Sets" value={mSets} onChange={(e) => setMSets(e.target.value)} /></div>
+              <div style={{ flex: 2 }}><Input T={T} placeholder="Reps" value={mReps} onChange={(e) => setMReps(e.target.value)} /></div>
             </div>
-            <GhostButton onClick={addManualExercise}><Icon name="plus" size={14} /> Übung hinzufügen</GhostButton>
-            {manualExercises.length > 0 && (
-              <div className="space-y-2">
-                {manualExercises.map((ex, i) => (
-                  <div key={i} className="flex items-center justify-between p-3" style={{ border: `1px solid ${C.hairline}` }}>
-                    <div className="text-sm" style={{ color: C.obsidian }}><p style={{ fontWeight: 400 }}>{ex.name}</p><p className="fl-mono text-xs" style={{ color: C.feltGray }}>{ex.sets} × {ex.reps}</p></div>
-                    <button onClick={() => setManualExercises((list) => list.filter((_, idx) => idx !== i))}><Icon name="x" size={16} color={C.feltGray} /></button>
+            <div style={{ display: "flex", marginTop: 7 }}><Ghost T={T} onClick={addManual}><Icon name="plus" size={14} /> Add exercise</Ghost></div>
+            {manual.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                {manual.map((ex, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 15, color: T.fg }}>{ex.name}</div>
+                      <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{ex.sets} × {ex.reps}</div>
+                    </div>
+                    <button onClick={() => setManual((l) => l.filter((_, idx) => idx !== i))}
+                      style={{ width: 34, height: 34, border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, borderRadius: 0 }}>×</button>
                   </div>
                 ))}
-                <TextInput placeholder="Name für diesen Plan" value={planName} onChange={(e) => setPlanName(e.target.value)} />
-                <PrimaryButton onClick={saveManualPlan}><Icon name="save" size={16} /> Plan speichern</PrimaryButton>
+                <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={planName} onChange={(e) => setPlanName(e.target.value)} /></div>
+                <div style={{ marginTop: 10 }}><Primary T={T} onClick={saveManual}>Save plan</Primary></div>
               </div>
             )}
           </div>
         )}
       </div>
-      <div>
-        <p className="fl-heading mb-3 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Gespeicherte Pläne</p>
-        {plans.length === 0 ? <EmptyState title="Noch keine Pläne" body="Generiere oben einen Plan oder erstelle deinen eigenen." /> : (
-          <div className="space-y-2">{plans.slice().sort((a, b) => b.createdAt - a.createdAt).map((p) => <PlanCard key={p.id} plan={p} onDelete={deletePlan} />)}</div>
+
+      <div style={{ marginTop: 22 }}>
+        <Label T={T}>Saved plans</Label>
+        <div style={{ marginTop: 8 }}>
+          {plans.length === 0
+            ? <Empty T={T} title="No plans yet" body="Generate one above or build your own." />
+            : plans.slice().sort((a, b) => b.createdAt - a.createdAt).map((p) => <PlanRow key={p.id} T={T} plan={p} onDelete={deletePlan} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- stats ---------- */
+function StatsView({ T, sessions, events, plans, onImport }) {
+  const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({
+    ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
+  })), [sessions]);
+  const max = Math.max(...weeks.map((w) => w.minutes), 1);
+  const total = weeks.reduce((s, w) => s + w.minutes, 0);
+  const avg = Math.round(total / 8);
+  const rows = DISCIPLINES.map((d) => ({ ...d, count: sessions.filter((s) => s.discipline === d.key).length }))
+    .filter((d) => d.count > 0).sort((a, b) => b.count - a.count);
+
+  const [pending, setPending] = useState(null);
+  const [error, setError] = useState("");
+  const doExport = () => {
+    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `fight-log-backup-${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+  const onFile = (e) => {
+    const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+    setError("");
+    const r = new FileReader();
+    r.onload = () => { try { const d = JSON.parse(r.result); if (!d || typeof d !== "object") throw 0; setPending(d); } catch (err) { setError("Could not read that file. Is it a Fight Log backup?"); } };
+    r.readAsText(file);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <div className="fl-mono" style={{ fontSize: 40, lineHeight: 0.85, fontWeight: 600, color: T.fg }}>{total}</div>
+        <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: T.muted }}>MINUTES · Ø {avg} / WK</div>
+      </div>
+
+      <div style={{ paddingBottom: 18, marginTop: 18, borderBottom: `1px solid ${T.rule}` }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140 }}>
+          {weeks.map((w, i) => (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+              <span className="fl-mono" style={{ fontSize: 9, color: T.muted }}>{w.minutes || ""}</span>
+              <div style={{ width: "100%", height: Math.max(3, Math.round((w.minutes / max) * 110)), background: w.minutes === max && max > 0 ? T.fg : T.muted }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {weeks.map((w, i) => <div key={i} className="fl-mono" style={{ flex: 1, textAlign: "center", fontSize: 8, color: T.muted }}>{w.label}</div>)}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <Label T={T}>Split by discipline</Label>
+        <div style={{ marginTop: 6 }}>
+          {rows.length === 0
+            ? <div style={{ fontSize: 13, color: T.body, padding: "10px 0" }}>No sessions logged yet.</div>
+            : rows.map((d) => {
+                const pct = Math.round((d.count / sessions.length) * 100);
+                return (
+                  <div key={d.key} style={{ padding: "9px 0", borderBottom: `1px solid ${T.rule}` }}>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                      <span style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{d.label}</span>
+                      <span className="fl-mono" style={{ fontSize: 12, color: T.muted }}>{pct}%</span>
+                    </div>
+                    <div style={{ height: 6, background: T.rule, marginTop: 9 }}><div style={{ height: 6, width: `${pct}%`, background: T.fg }} /></div>
+                  </div>
+                );
+              })}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
+        <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Backup</div>
+        <div style={{ fontSize: 12, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>
+          Your data lives on this device only. Export a file regularly or move it to another phone.
+        </div>
+        <div style={{ display: "flex", gap: 7, marginTop: 12 }}>
+          <Ghost T={T} onClick={doExport}><Icon name="down" size={16} /> Export</Ghost>
+          <label style={{
+            flex: 1, border: `1px solid ${T.fg}`, color: T.fg, height: 52, display: "flex", alignItems: "center",
+            justifyContent: "center", gap: 8, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase"
+          }}>
+            <Icon name="up" size={16} /> Import
+            <input type="file" accept="application/json" onChange={onFile} style={{ display: "none" }} />
+          </label>
+        </div>
+        {error && <div style={{ fontSize: 12, color: T.accent, marginTop: 12 }}>{error}</div>}
+        {pending && (
+          <div style={{ marginTop: 14, border: `1px solid ${T.fg}`, padding: 14 }}>
+            <div style={{ fontSize: 14, color: T.fg }}>
+              Found: {(pending.sessions || []).length} sessions, {(pending.events || []).length} events, {(pending.plans || []).length} plans
+            </div>
+            <div style={{ fontSize: 12, color: T.body, marginTop: 8 }}>Importing replaces everything on this device.</div>
+            <div style={{ display: "flex", gap: 7, marginTop: 12 }}>
+              <Ghost T={T} onClick={() => setPending(null)}>Cancel</Ghost>
+              <div style={{ flex: 1 }}><button onClick={() => {
+                onImport({
+                  sessions: Array.isArray(pending.sessions) ? pending.sessions : [],
+                  events: Array.isArray(pending.events) ? pending.events : [],
+                  plans: Array.isArray(pending.plans) ? pending.plans : []
+                });
+                setPending(null);
+              }} style={{ width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>Replace</button></div>
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function PlanCard({ plan, onDelete }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="p-4" style={{ border: `1px solid ${C.hairline}` }}>
-      <button className="flex w-full items-center justify-between" onClick={() => setOpen((o) => !o)}>
-        <div className="text-left"><p className="text-sm" style={{ color: C.obsidian, fontWeight: 400 }}>{plan.name}</p><p className="fl-mono text-xs" style={{ color: C.feltGray }}>{plan.exercises.length} Übungen{plan.duration ? ` · ${plan.duration} Min` : ""}</p></div>
-        <Icon name="dumbbell" size={16} color={C.feltGray} />
-      </button>
-      {open && (
-        <div className="mt-3 space-y-1.5">
-          {plan.exercises.map((ex, i) => <div key={i} className="flex items-center justify-between text-sm" style={{ color: C.obsidian }}><span>{ex.name}</span><span className="fl-mono text-xs" style={{ color: C.feltGray }}>{ex.sets} × {ex.reps}</span></div>)}
-          <button onClick={() => onDelete(plan.id)} className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: C.obsidian }}><Icon name="trash" size={14} /> Löschen</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WeeklyVolumeChart({ sessions }) {
-  const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({ ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0) })), [sessions]);
-  const max = Math.max(...weeks.map((w) => w.minutes), 1);
-  const MAX_H = 88;
-  return (
-    <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
-      <p className="fl-heading mb-5 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Trainingsvolumen · letzte 8 Wochen</p>
-      <div className="flex items-end gap-2" style={{ height: MAX_H + 34 }}>
-        {weeks.map((w, i) => {
-          const h = w.minutes > 0 ? Math.max(3, Math.round((w.minutes / max) * MAX_H)) : 3;
-          return (
-            <div key={i} className="flex flex-1 flex-col items-center justify-end gap-1.5">
-              <span className="fl-mono text-[9px]" style={{ color: C.feltGray }}>{w.minutes > 0 ? w.minutes : ""}</span>
-              <div style={{ width: "60%", maxWidth: 20, height: h, background: w.minutes > 0 ? C.obsidian : C.ashMist }} />
-              <span className="fl-mono text-[9px]" style={{ color: C.feltGray }}>{w.label}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-function DisciplineDistribution({ sessions }) {
-  const total = sessions.length;
-  const rows = DISCIPLINES.map((d) => ({ ...d, count: sessions.filter((s) => s.discipline === d.key).length })).filter((d) => d.count > 0).sort((a, b) => b.count - a.count);
-  return (
-    <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
-      <p className="fl-heading mb-5 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Verteilung nach Disziplin</p>
-      {rows.length === 0 ? <p className="text-sm" style={{ color: C.feltGray }}>Noch keine Daten für eine Verteilung.</p> : (
-        <div className="space-y-4">
-          {rows.map((d) => {
-            const pct = total ? Math.round((d.count / total) * 100) : 0;
-            return (
-              <div key={d.key}>
-                <div className="mb-1.5 flex items-center justify-between text-xs"><span style={{ color: C.obsidian }}>{d.label}</span><span className="fl-mono" style={{ color: C.feltGray }}>{d.count} · {pct}%</span></div>
-                <div className="h-[3px]" style={{ background: C.hairline }}><div style={{ height: "100%", width: `${pct}%`, background: d.color }} /></div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-function BackupSection({ sessions, events, plans, onImport }) {
-  const [pending, setPending] = useState(null);
-  const [error, setError] = useState("");
-  const doExport = () => {
-    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `fight-log-backup-${todayISO()}.json`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-  const onFile = (e) => {
-    const file = e.target.files[0]; e.target.value = ""; if (!file) return;
-    setError("");
-    const reader = new FileReader();
-    reader.onload = () => { try { const data = JSON.parse(reader.result); if (!data || typeof data !== "object") throw new Error("invalid"); setPending(data); } catch (err) { setError("Datei konnte nicht gelesen werden. Ist es eine gültige Backup-Datei?"); } };
-    reader.readAsText(file);
-  };
-  const confirmImport = () => { onImport({ sessions: Array.isArray(pending.sessions) ? pending.sessions : [], events: Array.isArray(pending.events) ? pending.events : [], plans: Array.isArray(pending.plans) ? pending.plans : [] }); setPending(null); };
-  return (
-    <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
-      <p className="fl-heading mb-1 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Datensicherung</p>
-      <p className="mb-5 text-xs" style={{ color: C.feltGray }}>Deine Daten liegen nur auf diesem Gerät. Exportiere regelmäßig ein Backup oder übertrage es auf ein anderes Handy.</p>
-      <div className="flex gap-2">
-        <GhostButton onClick={doExport}><Icon name="download" size={16} /> Exportieren</GhostButton>
-        <label className="flex flex-1 cursor-pointer items-center justify-center gap-2 text-sm" style={{ background: "transparent", color: C.obsidian, border: `1px solid ${C.obsidian}`, borderRadius: 9999, padding: "12px 20px", fontWeight: 400 }}>
-          <Icon name="upload" size={16} /> Importieren
-          <input type="file" accept="application/json" onChange={onFile} className="hidden" />
-        </label>
-      </div>
-      {error && <p className="mt-4 flex items-center gap-1.5 text-xs" style={{ color: C.obsidian }}><Icon name="alertTriangle" size={14} /> {error}</p>}
-      {pending && (
-        <div className="mt-4 space-y-3 p-4" style={{ border: `1px solid ${C.obsidian}` }}>
-          <p className="text-sm" style={{ color: C.obsidian, fontWeight: 400 }}>Gefunden: {Array.isArray(pending.sessions) ? pending.sessions.length : 0} Trainings, {Array.isArray(pending.events) ? pending.events.length : 0} Termine, {Array.isArray(pending.plans) ? pending.plans.length : 0} Pläne</p>
-          <p className="text-xs" style={{ color: C.feltGray }}>Der Import ersetzt alle aktuellen Daten auf diesem Gerät unwiderruflich.</p>
-          <div className="flex gap-2"><GhostButton onClick={() => setPending(null)}>Abbrechen</GhostButton><PrimaryButton onClick={confirmImport}>Ersetzen &amp; importieren</PrimaryButton></div>
-        </div>
-      )}
-    </div>
-  );
-}
-function StatsView({ sessions, events, plans, onImport }) {
-  return (
-    <div className="space-y-6 pb-6">
-      <WeeklyVolumeChart sessions={sessions} />
-      <DisciplineDistribution sessions={sessions} />
-      <BackupSection sessions={sessions} events={events} plans={plans} onImport={onImport} />
-    </div>
-  );
-}
+/* ---------- app ---------- */
+const TABS = [
+  { key: "log", label: "LOG", icon: "log" },
+  { key: "calendar", label: "CAL", icon: "cal" },
+  { key: "strength", label: "S&C", icon: "dumbbell" },
+  { key: "stats", label: "STATS", icon: "chart" }
+];
+const TITLES = { log: "Fight Log", calendar: "Calendar", strength: "Strength & cond.", stats: "Statistics" };
+const SUBTITLES = { log: "TRAINING RECORD", calendar: "SCHEDULE", strength: "PLAN GENERATOR", stats: "LAST 8 WEEKS" };
 
 function App() {
   const [tab, setTab] = useState("log");
+  const [theme, setTheme] = useState("light");
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
   const [events, setEvents] = useState([]);
   const [plans, setPlans] = useState([]);
+  const T = THEMES[theme] || THEMES.light;
 
   useEffect(() => {
-    let mounted = true;
-    async function loadKey(key, setter) {
-      try { const res = await window.storage.get(key); if (mounted && res && res.value) setter(JSON.parse(res.value)); }
-      catch (e) {}
-    }
-    Promise.all([loadKey("sessions", setSessions), loadKey("events", setEvents), loadKey("plans", setPlans)]).finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
+    let on = true;
+    const loadKey = (key, setter, raw) => window.storage.get(key)
+      .then((r) => { if (on && r && r.value) setter(raw ? r.value : JSON.parse(r.value)); })
+      .catch(() => {});
+    Promise.all([
+      loadKey("sessions", setSessions), loadKey("events", setEvents),
+      loadKey("plans", setPlans), loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true)
+    ]).finally(() => { if (on) setLoading(false); });
+    return () => { on = false; };
   }, []);
 
-  const persist = useCallback(async (key, value, setter) => {
+  useEffect(() => {
+    document.body.classList.toggle("fl-dark", theme === "dark");
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", T.bg);
+  }, [theme, T.bg]);
+
+  const persist = useCallback((key, value, setter) => {
     setter(value);
-    try { await window.storage.set(key, JSON.stringify(value)); } catch (e) { console.error("storage error", e); }
+    window.storage.set(key, JSON.stringify(value)).catch(() => {});
   }, []);
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    window.storage.set("theme", next).catch(() => {});
+  };
 
   const addSession = (s) => persist("sessions", [s, ...sessions], setSessions);
   const deleteSession = (id) => persist("sessions", sessions.filter((s) => s.id !== id), setSessions);
@@ -618,47 +889,54 @@ function App() {
   const deleteEvent = (id) => persist("events", events.filter((e) => e.id !== id), setEvents);
   const addPlan = (p) => persist("plans", [p, ...plans], setPlans);
   const deletePlan = (id) => persist("plans", plans.filter((p) => p.id !== id), setPlans);
-  const importAll = ({ sessions: s, events: e, plans: p }) => { persist("sessions", s, setSessions); persist("events", e, setEvents); persist("plans", p, setPlans); };
-
-  const TABS = [
-    { key: "log", label: "Training", icon: "clipboardList" },
-    { key: "calendar", label: "Kalender", icon: "calendarDays" },
-    { key: "strength", label: "Kraft & Ausdauer", icon: "dumbbell" },
-    { key: "stats", label: "Statistik", icon: "chart" },
-  ];
+  const importAll = (d) => { persist("sessions", d.sessions, setSessions); persist("events", d.events, setEvents); persist("plans", d.plans, setPlans); };
 
   return (
-    <div className="min-h-screen w-full" style={{ background: C.paper }}>
-      <div className="fl-root mx-auto flex min-h-screen max-w-md flex-col" style={{ color: C.obsidian }}>
-        <header className="sticky top-0 z-10 flex items-center gap-3 px-5 py-6" style={{ background: `linear-gradient(90deg, rgba(0,0,0,0.9), rgba(0,0,0,0.9)), ${IRIDESCENT}` }}>
-          <div className="flex h-9 w-9 items-center justify-center" style={{ border: `1px solid ${C.paper}`, borderRadius: 9999 }}><Icon name="swords" size={16} color={C.paper} /></div>
+    <div className="fl-root" style={{ background: T.bg, color: T.fg, minHeight: "100vh" }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <header style={{
+          padding: "calc(env(safe-area-inset-top) + 34px) 20px 14px", borderBottom: `2px solid ${T.fg}`,
+          display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12
+        }}>
           <div>
-            <p className="fl-heading text-xl leading-none" style={{ color: C.paper, fontWeight: 300 }}>Fight Log</p>
-            <p className="fl-mono mt-1 text-[10px]" style={{ color: "rgba(255,255,255,0.6)" }}>Trainingstagebuch · Kampfsport</p>
+            <div style={{ font: "700 30px/0.9 Archivo, sans-serif", letterSpacing: "-0.03em", textTransform: "uppercase" }}>{TITLES[tab]}</div>
+            <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.18em", color: T.muted, marginTop: 8 }}>{SUBTITLES[tab]}</div>
           </div>
+          <button onClick={toggleTheme} className="fl-mono" style={{
+            border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0,
+            fontSize: 10, letterSpacing: "0.14em", padding: "9px 11px"
+          }}>{theme === "dark" ? "DARK" : "LIGHT"}</button>
         </header>
-        <main className="flex-1 px-5 pt-6">
+
+        <main style={{ flex: 1, padding: "0 20px 28px" }}>
           {loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-24">
-              <Icon name="loader" size={22} className="icon-spin" color={C.obsidian} />
-              <p className="text-xs" style={{ color: C.feltGray }}>Lade Daten …</p>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "90px 0", color: T.muted }}>
+              <span className="icon-spin" style={{ display: "block" }}><Icon name="loader" size={22} /></span>
+              <span className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.16em" }}>LOADING</span>
             </div>
           ) : (
             <>
-              {tab === "log" && <LogView sessions={sessions} addSession={addSession} deleteSession={deleteSession} />}
-              {tab === "calendar" && <CalendarView events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
-              {tab === "strength" && <StrengthView plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
-              {tab === "stats" && <StatsView sessions={sessions} events={events} plans={plans} onImport={importAll} />}
+              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} />}
+              {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
+              {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
+              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} onImport={importAll} />}
             </>
           )}
         </main>
-        <nav className="sticky bottom-0 z-10 mt-6 grid grid-cols-4 gap-1 px-3 py-3" style={{ background: C.obsidian }}>
+
+        <nav style={{
+          position: "sticky", bottom: 0, display: "grid", gridTemplateColumns: "repeat(4,1fr)",
+          borderTop: `2px solid ${T.fg}`, background: T.bg, paddingBottom: "env(safe-area-inset-bottom)"
+        }}>
           {TABS.map((t) => {
             const active = tab === t.key;
             return (
-              <button key={t.key} onClick={() => setTab(t.key)} className="flex flex-col items-center gap-1.5 py-1.5" style={{ color: active ? C.paper : C.ashMist }}>
-                <Icon name={t.icon} size={19} />
-                <span className="text-[9px] uppercase tracking-wide" style={{ fontWeight: active ? 600 : 400 }}>{t.label}</span>
+              <button key={t.key} onClick={() => setTab(t.key)} style={{
+                background: active ? T.fg : "transparent", color: active ? T.bg : T.muted, border: "none", borderRadius: 0,
+                padding: "14px 0 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7
+              }}>
+                <Icon name={t.icon} size={18} />
+                <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.1em" }}>{t.label}</span>
               </button>
             );
           })}
