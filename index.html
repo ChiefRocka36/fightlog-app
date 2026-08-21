@@ -275,8 +275,100 @@ function RpeBars({ T, value }) {
   );
 }
 
+/* ---------- strength exercise log ---------- */
+function SetInput({ T, value, onChange, placeholder }) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      inputMode="decimal"
+      className="fl-mono"
+      style={{
+        width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
+        border: `1px solid ${T.rule}`, borderRadius: 0, padding: "10px 8px", fontSize: 14, outline: "none", textAlign: "center"
+      }}
+    />
+  );
+}
+
+function ExerciseLogEditor({ T, log, setLog, plans }) {
+  const [manualName, setManualName] = useState("");
+
+  const usePlan = (plan) => {
+    setLog(plan.exercises.map((ex) => ({
+      name: ex.name,
+      target: `${ex.sets} × ${ex.reps}`,
+      sets: Array.from({ length: Math.max(1, Number(ex.sets) || 1) }, () => ({ weight: "", reps: "" }))
+    })));
+  };
+  const addExercise = () => {
+    if (!manualName.trim()) return;
+    setLog((l) => [...l, { name: manualName.trim(), target: "", sets: [{ weight: "", reps: "" }] }]);
+    setManualName("");
+  };
+  const removeExercise = (i) => setLog((l) => l.filter((_, idx) => idx !== i));
+  const addSet = (i) => setLog((l) => l.map((ex, idx) => (idx === i ? { ...ex, sets: [...ex.sets, { weight: "", reps: "" }] } : ex)));
+  const removeSet = (i, si) => setLog((l) => l.map((ex, idx) => (idx === i ? { ...ex, sets: ex.sets.filter((_, sidx) => sidx !== si) } : ex)));
+  const updateSet = (i, si, field, value) => setLog((l) => l.map((ex, idx) => (idx === i ? { ...ex, sets: ex.sets.map((s, sidx) => (sidx === si ? { ...s, [field]: value } : s)) } : ex)));
+
+  return (
+    <div>
+      {plans.length > 0 && (
+        <div>
+          <Label T={T}>Use a saved plan</Label>
+          <div className="fl-scroll-x" style={{ display: "flex", gap: 7, marginTop: 11 }}>
+            {plans.map((p) => <Chip key={p.id} T={T} onClick={() => usePlan(p)}>{p.name}</Chip>)}
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: plans.length > 0 ? 18 : 0 }}>
+        <Label T={T}>Add exercise</Label>
+        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+          <div style={{ flex: 1 }}><Input T={T} placeholder="Exercise name" value={manualName} onChange={(e) => setManualName(e.target.value)} /></div>
+          <button onClick={addExercise} style={{ width: 52, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 22, borderRadius: 0 }}>+</button>
+        </div>
+      </div>
+
+      {log.map((ex, i) => (
+        <div key={i} style={{ marginTop: 14, border: `1px solid ${T.rule}`, padding: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+            <div>
+              <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
+              {ex.target && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>TARGET {ex.target}</div>}
+            </div>
+            <button onClick={() => removeExercise(i)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="x" size={16} /></button>
+          </div>
+
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div className="fl-mono" style={{ width: 20, fontSize: 9, color: T.muted }}>#</div>
+              <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>WEIGHT</div>
+              <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>REPS</div>
+              <div style={{ width: 24 }} />
+            </div>
+            {ex.sets.map((s, si) => (
+              <div key={si} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className="fl-mono" style={{ width: 20, fontSize: 12, color: T.muted }}>{si + 1}</div>
+                <div style={{ flex: 1 }}><SetInput T={T} value={s.weight} onChange={(v) => updateSet(i, si, "weight", v)} placeholder="kg" /></div>
+                <div style={{ flex: 1 }}><SetInput T={T} value={s.reps} onChange={(v) => updateSet(i, si, "reps", v)} placeholder="reps" /></div>
+                <button onClick={() => removeSet(i, si)} style={{ width: 24, height: 24, background: "none", border: "none", color: T.muted }}>×</button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => addSet(i)} className="fl-mono" style={{
+            width: "100%", marginTop: 10, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
+            height: 36, fontSize: 10, letterSpacing: "0.1em", borderRadius: 0, textTransform: "uppercase"
+          }}>+ Add set</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ---------- session form ---------- */
-function SessionForm({ T, onSave, onCancel, last }) {
+function SessionForm({ T, onSave, onCancel, last, plans }) {
   const [discipline, setDiscipline] = useState(last ? last.discipline : "mma");
   const [date, setDate] = useState(todayISO());
   const [duration, setDuration] = useState(last ? last.duration : 90);
@@ -284,10 +376,13 @@ function SessionForm({ T, onSave, onCancel, last }) {
   const [notes, setNotes] = useState("");
   const [didWell, setDidWell] = useState("");
   const [toImprove, setToImprove] = useState("");
+  const [exerciseLog, setExerciseLog] = useState([]);
+  const isStrength = discipline === "strength";
   const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
   const submit = () => onSave({
     id: uid(), discipline, date, duration: Number(duration) || 0, intensity,
-    notes: notes.trim(), didWell: didWell.trim(), toImprove: toImprove.trim(), createdAt: Date.now()
+    notes: notes.trim(), didWell: didWell.trim(), toImprove: toImprove.trim(),
+    exerciseLog: isStrength ? exerciseLog : [], createdAt: Date.now()
   });
   const repeat = () => { if (!last) return; setDiscipline(last.discipline); setDuration(last.duration); setIntensity(last.intensity); };
   return (
@@ -336,14 +431,20 @@ function SessionForm({ T, onSave, onCancel, last }) {
         <div style={{ marginTop: 11 }}><RpeRow T={T} value={intensity} onChange={setIntensity} /></div>
       </div>
 
-      <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div><Label T={T}>What you drilled</Label>
-          <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="Underhook chains, snap downs, 5 live goes" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
-        <div><Label T={T}>Went well</Label>
-          <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
-        <div><Label T={T}>Fix next time</Label>
-          <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What needs work?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></div></div>
-      </div>
+      {isStrength ? (
+        <div style={{ marginTop: 18 }}>
+          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={plans || []} />
+        </div>
+      ) : (
+        <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div><Label T={T}>What you drilled</Label>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="Underhook chains, snap downs, 5 live goes" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
+          <div><Label T={T}>Went well</Label>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
+          <div><Label T={T}>Fix next time</Label>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What needs work?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></div></div>
+        </div>
+      )}
 
       <div style={{ marginTop: 18 }}><Primary T={T} onClick={submit}>Save session</Primary></div>
     </div>
@@ -366,7 +467,12 @@ function SessionRow({ T, session, onDelete }) {
             <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted }}>{disc.label}</div>
             <div className="fl-mono" style={{ fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>
           </div>
-          {(session.notes || session.didWell) && !open && (
+          {!open && session.exerciseLog && session.exerciseLog.length > 0 && (
+            <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {session.exerciseLog.map((e) => e.name).join(", ")}
+            </div>
+          )}
+          {!open && !(session.exerciseLog && session.exerciseLog.length > 0) && (session.notes || session.didWell) && (
             <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {session.notes || session.didWell}
             </div>
@@ -376,6 +482,23 @@ function SessionRow({ T, session, onDelete }) {
       </button>
       {open && (
         <div style={{ padding: "0 0 16px 76px", display: "flex", flexDirection: "column", gap: 12 }}>
+          {session.exerciseLog && session.exerciseLog.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {session.exerciseLog.map((ex, i) => (
+                <div key={i}>
+                  <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {ex.sets.filter((s) => s.weight || s.reps).map((s, si) => (
+                      <span key={si} className="fl-mono" style={{ fontSize: 11, color: T.body, border: `1px solid ${T.rule}`, padding: "5px 8px" }}>
+                        {s.weight || "–"}{s.weight ? "kg" : ""} × {s.reps || "–"}
+                      </span>
+                    ))}
+                    {ex.sets.every((s) => !s.weight && !s.reps) && <span style={{ fontSize: 12, color: T.muted }}>No sets logged</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {[["What you drilled", session.notes], ["Went well", session.didWell], ["Fix next time", session.toImprove]]
             .filter(([, v]) => v).map(([l, v]) => (
               <div key={l}><Label T={T}>{l}</Label>
@@ -391,7 +514,7 @@ function SessionRow({ T, session, onDelete }) {
   );
 }
 
-function LogView({ T, sessions, addSession, deleteSession }) {
+function LogView({ T, sessions, addSession, deleteSession, plans }) {
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState("all");
   const sorted = useMemo(() => [...sessions].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt)), [sessions]);
@@ -423,7 +546,7 @@ function LogView({ T, sessions, addSession, deleteSession }) {
         </div>
       )}
       {showForm && (
-        <SessionForm T={T} last={sorted[0]} onCancel={() => setShowForm(false)}
+        <SessionForm T={T} last={sorted[0]} plans={plans} onCancel={() => setShowForm(false)}
           onSave={(s) => { addSession(s); setShowForm(false); }} />
       )}
 
@@ -916,7 +1039,7 @@ function App() {
             </div>
           ) : (
             <>
-              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} />}
+              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} plans={plans} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
               {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
               {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} onImport={importAll} />}
