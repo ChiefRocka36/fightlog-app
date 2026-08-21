@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Fight Log</title>
+<meta name="theme-color" content="#000000" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Fight Log" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./icon-180.png" />
+<link rel="icon" href="./icon-192.png" />
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<script src="https://cdn.tailwindcss.com"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  html, body { background: #ffffff; margin: 0; overscroll-behavior: none; }
+  .fl-root, .fl-root input, .fl-root textarea, .fl-root select, .fl-root button { font-family: 'Inter', sans-serif; }
+  .fl-heading { font-family: 'Inter', sans-serif; letter-spacing: -0.01em; }
+  .fl-mono { font-family: 'IBM Plex Mono', monospace; }
+  .fl-root input::placeholder, .fl-root textarea::placeholder { color: #9a9a9a; }
+  .fl-root input[type="date"], .fl-root input[type="time"] { color-scheme: light; }
+  .icon-spin { animation: fl-spin 1s linear infinite; }
+  @keyframes fl-spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+  window.storage = {
+    get: function (key) {
+      return new Promise(function (resolve, reject) {
+        try {
+          var v = localStorage.getItem("fl:" + key);
+          if (v === null) { reject(new Error("not found")); return; }
+          resolve({ key: key, value: v, shared: false });
+        } catch (e) { reject(e); }
+      });
+    },
+    set: function (key, value) {
+      return new Promise(function (resolve, reject) {
+        try { localStorage.setItem("fl:" + key, value); resolve({ key: key, value: value, shared: false }); }
+        catch (e) { reject(e); }
+      });
+    },
+    delete: function (key) {
+      return new Promise(function (resolve) { localStorage.removeItem("fl:" + key); resolve({ key: key, deleted: true, shared: false }); });
+    },
+    list: function (prefix) {
+      prefix = prefix || "";
+      return new Promise(function (resolve) {
+        var keys = Object.keys(localStorage).filter(function (k) { return k.indexOf("fl:" + prefix) === 0; }).map(function (k) { return k.slice(3); });
+        resolve({ keys: keys, prefix: prefix, shared: false });
+      });
+    }
+  };
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () { navigator.serviceWorker.register("./sw.js").catch(function () {}); });
+  }
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useCallback } = React;
+
+function Icon({ name, size = 18, color = "currentColor", fill = "none", style, className }) {
+  const common = { width: size, height: size, viewBox: "0 0 24 24", fill, stroke: color, strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", style, className };
+  const paths = {
+    clipboardList: <><rect x="6" y="3" width="12" height="18" rx="0"/><rect x="9" y="1" width="6" height="3" rx="0"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="13" y2="18"/></>,
+    calendarDays: <><rect x="3" y="5" width="18" height="16" rx="0"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/><circle cx="8" cy="14" r="1"/><circle cx="12" cy="14" r="1"/><circle cx="16" cy="14" r="1"/></>,
+    dumbbell: <><line x1="6" y1="12" x2="18" y2="12"/><rect x="1.5" y="9" width="3" height="6" rx="0"/><rect x="19.5" y="9" width="3" height="6" rx="0"/><rect x="5" y="7" width="2.2" height="10" rx="0"/><rect x="16.8" y="7" width="2.2" height="10" rx="0"/></>,
+    plus: <><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></>,
+    x: <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
+    trash: <><polyline points="3 6 5 6 21 6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></>,
+    chevronLeft: <polyline points="15 18 9 12 15 6"/>,
+    chevronRight: <polyline points="9 18 15 12 9 6"/>,
+    save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></>,
+    shuffle: <><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></>,
+    loader: <><circle cx="12" cy="12" r="9" strokeOpacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"/></>,
+    swords: <><line x1="5" y1="5" x2="19" y2="19"/><line x1="5" y1="19" x2="19" y2="5"/><line x1="9" y1="15" x2="15" y2="9"/></>,
+    chart: <><line x1="4" y1="20" x2="4" y2="11"/><line x1="10" y1="20" x2="10" y2="4"/><line x1="16" y1="20" x2="16" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></>,
+    download: <><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/></>,
+    upload: <><path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M5 3h14"/></>,
+    alertTriangle: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+  };
+  return <svg {...common}>{paths[name] || null}</svg>;
+}
+
+const C = { paper: "#ffffff", obsidian: "#000000", inkstone: "#181818", feltGray: "#6d6d6d", slatePill: "#636363", ashMist: "#9a9a9a", pewter: "#808080", hairline: "rgba(0,0,0,0.14)" };
+const IRIDESCENT = "linear-gradient(90deg, rgb(160,224,171), rgb(255,172,46) 50%, rgb(165,45,37))";
+const EASE = "cubic-bezier(0.19,1,0.22,1)";
+function textOn(hex) {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.55 ? C.obsidian : C.paper;
+}
+
+const DISCIPLINES = [
+  { key: "mma", label: "MMA", color: C.obsidian },
+  { key: "striking", label: "Striking", color: C.inkstone },
+  { key: "bjj", label: "BJJ", color: C.slatePill },
+  { key: "wrestling", label: "Wrestling", color: C.feltGray },
+  { key: "strength", label: "Kraft", color: C.pewter },
+  { key: "conditioning", label: "Konditionierung", color: C.ashMist },
+  { key: "other", label: "Sonstiges", color: C.ashMist },
+];
+const getDiscipline = (key) => DISCIPLINES.find((d) => d.key === key) || DISCIPLINES[DISCIPLINES.length - 1];
+const EVENT_TYPES = [
+  { key: "training", label: "Training", color: C.ashMist },
+  { key: "seminar", label: "Seminar", color: C.pewter },
+  { key: "tournament", label: "Turnier", color: C.feltGray },
+  { key: "competition", label: "Wettkampf", color: C.obsidian },
+];
+const getEventType = (key) => EVENT_TYPES.find((e) => e.key === key) || EVENT_TYPES[0];
+const GOALS = [{ key: "strength", label: "Kraft" }, { key: "power", label: "Explosivkraft" }, { key: "conditioning", label: "Ausdauer" }, { key: "mma", label: "MMA-spezifisch" }];
+
+const POOLS = {
+  warmupStrength: { name: "Dynamisches Aufwärmen (Hüfte, Schultern, Ausfallschritte)", sets: 1, reps: "8 Min" },
+  warmupCond: { name: "Lockeres Einlaufen / Seilspringen", sets: 1, reps: "5 Min" },
+  strength: [
+    { name: "Kniebeuge", sets: 4, reps: "5" }, { name: "Kreuzheben", sets: 3, reps: "5" },
+    { name: "Bankdrücken", sets: 4, reps: "6" }, { name: "Klimmzüge", sets: 4, reps: "Max" },
+    { name: "Langhantelrudern", sets: 4, reps: "8" }, { name: "Schulterdrücken", sets: 3, reps: "8" },
+    { name: "Bulgarian Split Squat", sets: 3, reps: "8 je Bein" }, { name: "Farmers Walk", sets: 3, reps: "30 m" },
+    { name: "Plank", sets: 3, reps: "60 Sek" }, { name: "Nacken-Bridges", sets: 3, reps: "10" },
+  ],
+  power: [
+    { name: "Box Jumps", sets: 4, reps: "5" }, { name: "Kettlebell Swings", sets: 4, reps: "15" },
+    { name: "Medizinball Rotationswurf", sets: 4, reps: "8 je Seite" }, { name: "Power Clean", sets: 5, reps: "3" },
+    { name: "Broad Jumps", sets: 4, reps: "5" }, { name: "Sprints", sets: 6, reps: "20 m" },
+    { name: "Plyo Liegestütz", sets: 3, reps: "8" }, { name: "Battle Rope Slams", sets: 4, reps: "20 Sek" },
+  ],
+  conditioning: [
+    { name: "Bike Sprints (Rundenstruktur)", sets: 6, reps: "30 Sek / 90 Sek Pause" }, { name: "Burpees Runde", sets: 5, reps: "60 Sek" },
+    { name: "Schlittenschieben", sets: 6, reps: "20 m" }, { name: "Seilspringen Runde", sets: 5, reps: "3 Min" },
+    { name: "Rudergerät Intervalle", sets: 8, reps: "250 m" }, { name: "Schattenboxen mit Gewichtsweste", sets: 5, reps: "3 Min Runde" },
+    { name: "Zirkeltraining (Ropes / KB / Burpees)", sets: 4, reps: "1 Runde" },
+  ],
+  mmaSpecific: [
+    { name: "Reifen-Schläge (Vorschlaghammer)", sets: 4, reps: "30 Sek" }, { name: "Tire Flips", sets: 5, reps: "8" },
+    { name: "Sprawl-to-Sprint", sets: 5, reps: "30 Sek" }, { name: "Handtuch-Klimmzüge (Griffkraft)", sets: 3, reps: "Max" },
+    { name: "Explosive Med-Ball Sprawls", sets: 4, reps: "10" }, { name: "Power Clean", sets: 4, reps: "3" },
+    { name: "Kettlebell Swings", sets: 4, reps: "15" },
+  ],
+};
+
+function shuffleArr(arr) { return [...arr].sort(() => Math.random() - 0.5); }
+function pick(pool, n) { return shuffleArr(pool).slice(0, Math.min(n, pool.length)); }
+function generatePlan(goal, duration) {
+  const count = duration <= 30 ? 3 : duration <= 45 ? 4 : duration <= 60 ? 6 : 8;
+  let exercises = [];
+  let warmup = POOLS.warmupStrength;
+  if (goal === "strength") exercises = pick(POOLS.strength, count);
+  else if (goal === "power") exercises = pick(POOLS.power, count);
+  else if (goal === "conditioning") { exercises = pick(POOLS.conditioning, count); warmup = POOLS.warmupCond; }
+  else if (goal === "mma") exercises = pick([...POOLS.mmaSpecific, ...POOLS.power], count);
+  return { warmup, exercises };
+}
+
+function toISO(d) { const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, "0"); const day = String(d.getDate()).padStart(2, "0"); return `${y}-${m}-${day}`; }
+function todayISO() { return toISO(new Date()); }
+function fmtShort(iso) { const d = new Date(iso + "T00:00:00"); return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" }); }
+function fmtLong(iso) { const d = new Date(iso + "T00:00:00"); return d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "long" }); }
+function startOfWeekISO() { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return toISO(d); }
+function startOfWeekDate(d) { const day = (d.getDay() + 6) % 7; const s = new Date(d); s.setDate(d.getDate() - day); s.setHours(0, 0, 0, 0); return s; }
+function buildLastNWeeks(n) {
+  const curStart = startOfWeekDate(new Date());
+  const weeks = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const start = new Date(curStart); start.setDate(curStart.getDate() - i * 7);
+    const end = new Date(start); end.setDate(start.getDate() + 6);
+    weeks.push({ startISO: toISO(start), endISO: toISO(end), label: start.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) });
+  }
+  return weeks;
+}
+function getMonthMatrix(year, month) {
+  const first = new Date(year, month, 1);
+  const startDay = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i = startDay - 1; i >= 0; i--) cells.push({ date: new Date(year, month - 1, daysInPrevMonth - i), current: false });
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ date: new Date(year, month, d), current: true });
+  while (cells.length % 7 !== 0) { const last = cells[cells.length - 1].date; const next = new Date(last); next.setDate(last.getDate() + 1); cells.push({ date: next, current: false }); }
+  return cells;
+}
+const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+function IconBtn({ onClick, children, title }) {
+  return <button onClick={onClick} title={title} className="flex items-center justify-center" style={{ width: 38, height: 38, borderRadius: 9999, border: `1px solid ${C.obsidian}`, background: "transparent", color: C.obsidian }}>{children}</button>;
+}
+function Chip({ active, color, onClick, children }) {
+  return <button onClick={onClick} className="text-xs" style={{ borderRadius: 9999, padding: "8px 16px", fontWeight: 400, background: active ? color : "transparent", color: active ? textOn(color) : C.feltGray, border: `1px solid ${active ? color : C.hairline}`, transition: `all .3s ${EASE}` }}>{children}</button>;
+}
+function Field({ label, children }) {
+  return <label className="block"><span className="mb-2 block text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>{label}</span>{children}</label>;
+}
+const inputStyle = { background: C.paper, border: "1px solid rgba(0,0,0,0.35)", color: C.obsidian, borderRadius: 0 };
+const inputClass = "w-full px-3 py-2.5 text-sm outline-none";
+function TextInput(props) { return <input {...props} style={inputStyle} className={inputClass + " " + (props.className || "")} />; }
+function TextArea(props) { return <textarea {...props} style={inputStyle} className={inputClass + " " + (props.className || "")} />; }
+function PrimaryButton({ onClick, children, disabled, type = "button" }) {
+  return <button type={type} onClick={onClick} disabled={disabled} className="flex w-full items-center justify-center gap-2 text-sm disabled:opacity-40" style={{ background: C.slatePill, color: C.paper, border: `1px solid ${C.paper}`, borderRadius: 9999, padding: "12px 28px", fontWeight: 400 }}>{children}</button>;
+}
+function GhostButton({ onClick, children }) {
+  return <button onClick={onClick} className="flex items-center justify-center gap-2 text-sm" style={{ background: "transparent", color: C.obsidian, border: `1px solid ${C.obsidian}`, borderRadius: 9999, padding: "12px 28px", fontWeight: 400 }}>{children}</button>;
+}
+function TextLink({ onClick, children }) { return <button onClick={onClick} className="text-xs" style={{ color: C.feltGray, fontWeight: 400 }}>{children}</button>; }
+function EmptyState({ title, body }) {
+  return <div className="px-5 py-10 text-left" style={{ border: `1px solid ${C.hairline}` }}><p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>{title}</p><p className="mt-1 text-sm" style={{ color: C.feltGray }}>{body}</p></div>;
+}
+function IntensityDots({ value, onChange }) {
+  return <div className="flex items-center gap-1.5">{[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" onClick={() => onChange(n)} style={{ width: 22, height: 8, background: n <= value ? C.obsidian : "transparent", border: `1px solid ${n <= value ? C.obsidian : C.ashMist}` }} />)}</div>;
+}
+function IntensityDotsStatic({ value }) {
+  return <div className="flex items-center gap-1">{[1, 2, 3, 4, 5].map((n) => <span key={n} style={{ width: 14, height: 5, background: n <= value ? C.obsidian : "transparent", border: `1px solid ${n <= value ? C.obsidian : C.ashMist}` }} />)}</div>;
+}
+
+function SessionForm({ onSave, onCancel }) {
+  const [discipline, setDiscipline] = useState("mma");
+  const [date, setDate] = useState(todayISO());
+  const [duration, setDuration] = useState(60);
+  const [intensity, setIntensity] = useState(3);
+  const [didWell, setDidWell] = useState("");
+  const [toImprove, setToImprove] = useState("");
+  const [notes, setNotes] = useState("");
+  const submit = () => onSave({ id: uid(), discipline, date, duration: Number(duration) || 0, intensity, didWell: didWell.trim(), toImprove: toImprove.trim(), notes: notes.trim(), createdAt: Date.now() });
+  return (
+    <div className="space-y-5 p-5" style={{ border: `1px solid ${C.obsidian}` }}>
+      <div className="flex items-center justify-between">
+        <p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Neuer Eintrag</p>
+        <button onClick={onCancel}><Icon name="x" size={18} color={C.feltGray} /></button>
+      </div>
+      <Field label="Disziplin"><div className="flex flex-wrap gap-2">{DISCIPLINES.map((d) => <Chip key={d.key} active={discipline === d.key} color={d.color} onClick={() => setDiscipline(d.key)}>{d.label}</Chip>)}</div></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Datum"><TextInput type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Dauer (Min)"><TextInput type="number" min="0" value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>
+      </div>
+      <Field label="Intensität"><IntensityDots value={intensity} onChange={setIntensity} /></Field>
+      <Field label="Was wurde gemacht (Techniken / Drills)"><TextArea rows={2} placeholder="z.B. Leg Kick Kombinationen, Sparring 5 Runden, Takedown-Ketten" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <Field label="Was ist gut gelaufen"><TextArea rows={2} placeholder="Was hat funktioniert?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></Field>
+      <Field label="Was verbessert werden muss"><TextArea rows={2} placeholder="Woran musst du arbeiten?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></Field>
+      <PrimaryButton onClick={submit}><Icon name="save" size={16} /> Eintrag speichern</PrimaryButton>
+    </div>
+  );
+}
+
+function SessionCard({ session, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const disc = getDiscipline(session.discipline);
+  return (
+    <div style={{ border: `1px solid ${C.hairline}` }}>
+      <div className="flex" style={{ borderLeft: `5px solid ${disc.color}` }}>
+        <button className="flex-1 p-4 text-left" onClick={() => setOpen((o) => !o)}>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wide" style={{ color: disc.color === C.ashMist ? C.feltGray : disc.color }}>{disc.label}</span>
+            <span className="fl-mono text-xs" style={{ color: C.feltGray }}>{fmtShort(session.date)} · {session.duration} MIN</span>
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <IntensityDotsStatic value={session.intensity} />
+            {session.didWell && <p className="truncate text-sm" style={{ color: C.obsidian }}>{session.didWell}</p>}
+          </div>
+        </button>
+      </div>
+      {open && (
+        <div className="space-y-3 px-4 pb-5 pt-1 text-sm" style={{ color: C.obsidian }}>
+          {session.notes && <div><p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Was gemacht wurde</p><p className="mt-0.5">{session.notes}</p></div>}
+          {session.didWell && <div><p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Lief gut</p><p className="mt-0.5">{session.didWell}</p></div>}
+          {session.toImprove && <div><p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Verbessern</p><p className="mt-0.5">{session.toImprove}</p></div>}
+          <button onClick={() => onDelete(session.id)} className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: C.obsidian }}><Icon name="trash" size={14} /> Löschen</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogView({ sessions, addSession, deleteSession }) {
+  const [showForm, setShowForm] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const filtered = useMemo(() => { const list = filter === "all" ? sessions : sessions.filter((s) => s.discipline === filter); return [...list].sort((a, b) => (a.date < b.date ? 1 : -1) || b.createdAt - a.createdAt); }, [sessions, filter]);
+  const stats = useMemo(() => {
+    const weekStart = startOfWeekISO();
+    const thisWeek = sessions.filter((s) => s.date >= weekStart).length;
+    const counts = {};
+    sessions.forEach((s) => (counts[s.discipline] = (counts[s.discipline] || 0) + 1));
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return { total: sessions.length, week: thisWeek, top: top ? getDiscipline(top[0]).label : "–" };
+  }, [sessions]);
+  return (
+    <div className="space-y-6 pb-6">
+      <div className="grid grid-cols-3" style={{ border: `1px solid ${C.hairline}` }}>
+        {[{ label: "Gesamt", value: stats.total }, { label: "Diese Woche", value: stats.week }, { label: "Top", value: stats.top, small: true }].map((s, i) => (
+          <div key={s.label} className="p-3 text-left" style={{ borderLeft: i > 0 ? `1px solid ${C.hairline}` : "none" }}>
+            <p className={"fl-mono " + (s.small ? "text-sm" : "text-xl")} style={{ color: C.obsidian }}>{s.value}</p>
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: C.feltGray }}>{s.label}</p>
+          </div>
+        ))}
+      </div>
+      {!showForm && <PrimaryButton onClick={() => setShowForm(true)}><Icon name="plus" size={16} /> Training eintragen</PrimaryButton>}
+      {showForm && <SessionForm onCancel={() => setShowForm(false)} onSave={(s) => { addSession(s); setShowForm(false); }} />}
+      <div className="flex flex-wrap gap-2">
+        <Chip active={filter === "all"} color={C.obsidian} onClick={() => setFilter("all")}>Alle</Chip>
+        {DISCIPLINES.map((d) => <Chip key={d.key} active={filter === d.key} color={d.color} onClick={() => setFilter(d.key)}>{d.label}</Chip>)}
+      </div>
+      {filtered.length === 0 ? <EmptyState title="Noch keine Einträge" body="Dein erstes Training wartet auf Notizen. Trag es oben ein." /> : <div className="space-y-3">{filtered.map((s) => <SessionCard key={s.id} session={s} onDelete={deleteSession} />)}</div>}
+    </div>
+  );
+}
+
+function EventForm({ date, onSave, onCancel }) {
+  const [type, setType] = useState("training");
+  const [title, setTitle] = useState("");
+  const [time, setTime] = useState("");
+  const [location, setLocation] = useState("");
+  const [notes, setNotes] = useState("");
+  const submit = () => { if (!title.trim()) return; onSave({ id: uid(), date, type, title: title.trim(), time: time.trim(), location: location.trim(), notes: notes.trim(), createdAt: Date.now() }); };
+  return (
+    <div className="space-y-4 p-5" style={{ border: `1px solid ${C.obsidian}` }}>
+      <Field label="Art"><div className="flex flex-wrap gap-2">{EVENT_TYPES.map((t) => <Chip key={t.key} active={type === t.key} color={t.color} onClick={() => setType(t.key)}>{t.label}</Chip>)}</div></Field>
+      <Field label="Titel"><TextInput placeholder="z.B. Sparring Camp, Landesmeisterschaft" value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Uhrzeit"><TextInput type="time" value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+        <Field label="Ort"><TextInput placeholder="Gym / Halle" value={location} onChange={(e) => setLocation(e.target.value)} /></Field>
+      </div>
+      <Field label="Notizen"><TextArea rows={2} placeholder="Details, Gewichtsklasse, Ansprechpartner …" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+      <div className="flex gap-2"><GhostButton onClick={onCancel}>Abbrechen</GhostButton><PrimaryButton onClick={submit}>Speichern</PrimaryButton></div>
+    </div>
+  );
+}
+
+function CalendarView({ events, addEvent, deleteEvent }) {
+  const now = new Date();
+  const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() });
+  const [selected, setSelected] = useState(todayISO());
+  const [showForm, setShowForm] = useState(false);
+  const cells = useMemo(() => getMonthMatrix(cursor.y, cursor.m), [cursor]);
+  const eventsByDate = useMemo(() => { const map = {}; events.forEach((e) => { if (!map[e.date]) map[e.date] = []; map[e.date].push(e); }); return map; }, [events]);
+  const selectedEvents = (eventsByDate[selected] || []).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  return (
+    <div className="space-y-6 pb-6">
+      <div className="p-4" style={{ border: `1px solid ${C.hairline}` }}>
+        <div className="mb-4 flex items-center justify-between">
+          <IconBtn title="Vorheriger Monat" onClick={() => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))}><Icon name="chevronLeft" size={18} /></IconBtn>
+          <p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>{MONTHS[cursor.m]} <span className="fl-mono text-sm">{cursor.y}</span></p>
+          <IconBtn title="Nächster Monat" onClick={() => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))}><Icon name="chevronRight" size={18} /></IconBtn>
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {WEEKDAYS.map((w) => <div key={w} className="fl-mono py-1 text-center text-[10px]" style={{ color: C.feltGray }}>{w}</div>)}
+          {cells.map(({ date, current }, i) => {
+            const iso = toISO(date);
+            const dayEvents = eventsByDate[iso] || [];
+            const isSelected = iso === selected;
+            const isToday = iso === todayISO();
+            return (
+              <button key={i} onClick={() => { setSelected(iso); setShowForm(false); }} className="flex flex-col items-center justify-center gap-1 py-1.5" style={{ opacity: current ? 1 : 0.3, background: isSelected ? C.obsidian : "transparent", border: isToday && !isSelected ? `1px solid ${C.obsidian}` : "1px solid transparent" }}>
+                <span className="fl-mono text-xs" style={{ color: isSelected ? C.paper : C.obsidian }}>{date.getDate()}</span>
+                <div className="flex h-1.5 items-center gap-0.5">{dayEvents.slice(0, 3).map((e) => <span key={e.id} style={{ width: 4, height: 4, borderRadius: 999, background: isSelected ? C.paper : getEventType(e.type).color }} />)}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="fl-heading text-base" style={{ color: C.obsidian, fontWeight: 400 }}>{fmtLong(selected)}</p>
+          {!showForm && <TextLink onClick={() => setShowForm(true)}><span className="flex items-center gap-1"><Icon name="plus" size={14} /> Termin</span></TextLink>}
+        </div>
+        {showForm && <EventForm date={selected} onCancel={() => setShowForm(false)} onSave={(e) => { addEvent(e); setShowForm(false); }} />}
+        {selectedEvents.length === 0 && !showForm ? <EmptyState title="Keine Termine" body="An diesem Tag ist noch nichts eingetragen." /> : (
+          <div className="space-y-2">
+            {selectedEvents.map((e) => {
+              const t = getEventType(e.type);
+              return (
+                <div key={e.id} className="flex items-start gap-3 p-4" style={{ border: `1px solid ${C.hairline}` }}>
+                  <span className="mt-1.5 h-2 w-2 shrink-0" style={{ background: t.color, borderRadius: 999 }} />
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between"><p className="text-sm" style={{ color: C.obsidian, fontWeight: 400 }}>{e.title}</p>{e.time && <span className="fl-mono text-xs" style={{ color: C.feltGray }}>{e.time}</span>}</div>
+                    <p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>{t.label}</p>
+                    {e.location && <p className="mt-0.5 text-xs" style={{ color: C.feltGray }}>{e.location}</p>}
+                    {e.notes && <p className="mt-1 text-sm" style={{ color: C.obsidian }}>{e.notes}</p>}
+                  </div>
+                  <button onClick={() => deleteEvent(e.id)}><Icon name="trash" size={14} color={C.feltGray} /></button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StrengthView({ plans, addPlan, deletePlan }) {
+  const [goal, setGoal] = useState("mma");
+  const [duration, setDuration] = useState(45);
+  const [draft, setDraft] = useState(null);
+  const [planName, setPlanName] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualExercises, setManualExercises] = useState([]);
+  const [mName, setMName] = useState("");
+  const [mSets, setMSets] = useState("");
+  const [mReps, setMReps] = useState("");
+  const roll = () => { const p = generatePlan(goal, duration); setDraft(p); setPlanName(`${GOALS.find((g) => g.key === goal).label} · ${duration} Min`); };
+  const removeFromDraft = (idx) => setDraft((d) => ({ ...d, exercises: d.exercises.filter((_, i) => i !== idx) }));
+  const savePlan = () => { if (!draft || draft.exercises.length === 0) return; addPlan({ id: uid(), name: planName.trim() || "Trainingsplan", goal, duration, exercises: [draft.warmup, ...draft.exercises], createdAt: Date.now() }); setDraft(null); setPlanName(""); };
+  const addManualExercise = () => { if (!mName.trim()) return; setManualExercises((list) => [...list, { name: mName.trim(), sets: mSets || "-", reps: mReps || "-" }]); setMName(""); setMSets(""); setMReps(""); };
+  const saveManualPlan = () => { if (manualExercises.length === 0) return; addPlan({ id: uid(), name: planName.trim() || "Eigener Plan", goal: "custom", duration: null, exercises: manualExercises, createdAt: Date.now() }); setManualExercises([]); setPlanName(""); setManualOpen(false); };
+  return (
+    <div className="space-y-6 pb-6">
+      <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
+        <p className="fl-heading mb-4 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Plan generieren</p>
+        <Field label="Ziel"><div className="flex flex-wrap gap-2">{GOALS.map((g) => <Chip key={g.key} active={goal === g.key} color={C.obsidian} onClick={() => setGoal(g.key)}>{g.label}</Chip>)}</div></Field>
+        <div className="mt-4"><Field label="Dauer"><div className="flex flex-wrap gap-2">{[30, 45, 60, 90].map((d) => <Chip key={d} active={duration === d} color={C.slatePill} onClick={() => setDuration(d)}>{d} Min</Chip>)}</div></Field></div>
+        <div className="mt-5"><PrimaryButton onClick={roll}><Icon name="shuffle" size={16} /> Plan generieren</PrimaryButton></div>
+        {draft && (
+          <div className="mt-5 space-y-2 pt-5" style={{ borderTop: `1px solid ${C.hairline}` }}>
+            <div className="p-3" style={{ border: `1px solid ${C.hairline}` }}>
+              <p className="text-[11px] uppercase tracking-wide" style={{ color: C.feltGray }}>Aufwärmen</p>
+              <div className="flex items-center justify-between text-sm" style={{ color: C.obsidian }}><span>{draft.warmup.name}</span><span className="fl-mono text-xs" style={{ color: C.feltGray }}>{draft.warmup.reps}</span></div>
+            </div>
+            {draft.exercises.map((ex, i) => (
+              <div key={i} className="flex items-center justify-between p-3" style={{ border: `1px solid ${C.hairline}` }}>
+                <div className="text-sm" style={{ color: C.obsidian }}><p style={{ fontWeight: 400 }}>{ex.name}</p><p className="fl-mono text-xs" style={{ color: C.feltGray }}>{ex.sets} × {ex.reps}</p></div>
+                <button onClick={() => removeFromDraft(i)}><Icon name="x" size={16} color={C.feltGray} /></button>
+              </div>
+            ))}
+            <TextInput placeholder="Name für diesen Plan" value={planName} onChange={(e) => setPlanName(e.target.value)} />
+            <div className="flex gap-2"><GhostButton onClick={roll}><Icon name="shuffle" size={14} /> Neu mischen</GhostButton><PrimaryButton onClick={savePlan}><Icon name="save" size={16} /> Plan speichern</PrimaryButton></div>
+          </div>
+        )}
+      </div>
+      <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
+        <button className="flex w-full items-center justify-between" onClick={() => setManualOpen((o) => !o)}>
+          <p className="fl-heading text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Eigenen Plan erstellen</p>
+          <Icon name="plus" size={18} color={C.feltGray} style={{ transform: manualOpen ? "rotate(45deg)" : "none" }} />
+        </button>
+        {manualOpen && (
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              <TextInput placeholder="Übung" value={mName} onChange={(e) => setMName(e.target.value)} className="col-span-3" />
+              <TextInput placeholder="Sätze" value={mSets} onChange={(e) => setMSets(e.target.value)} />
+              <TextInput placeholder="Wdh." value={mReps} onChange={(e) => setMReps(e.target.value)} className="col-span-2" />
+            </div>
+            <GhostButton onClick={addManualExercise}><Icon name="plus" size={14} /> Übung hinzufügen</GhostButton>
+            {manualExercises.length > 0 && (
+              <div className="space-y-2">
+                {manualExercises.map((ex, i) => (
+                  <div key={i} className="flex items-center justify-between p-3" style={{ border: `1px solid ${C.hairline}` }}>
+                    <div className="text-sm" style={{ color: C.obsidian }}><p style={{ fontWeight: 400 }}>{ex.name}</p><p className="fl-mono text-xs" style={{ color: C.feltGray }}>{ex.sets} × {ex.reps}</p></div>
+                    <button onClick={() => setManualExercises((list) => list.filter((_, idx) => idx !== i))}><Icon name="x" size={16} color={C.feltGray} /></button>
+                  </div>
+                ))}
+                <TextInput placeholder="Name für diesen Plan" value={planName} onChange={(e) => setPlanName(e.target.value)} />
+                <PrimaryButton onClick={saveManualPlan}><Icon name="save" size={16} /> Plan speichern</PrimaryButton>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div>
+        <p className="fl-heading mb-3 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Gespeicherte Pläne</p>
+        {plans.length === 0 ? <EmptyState title="Noch keine Pläne" body="Generiere oben einen Plan oder erstelle deinen eigenen." /> : (
+          <div className="space-y-2">{plans.slice().sort((a, b) => b.createdAt - a.createdAt).map((p) => <PlanCard key={p.id} plan={p} onDelete={deletePlan} />)}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PlanCard({ plan, onDelete }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="p-4" style={{ border: `1px solid ${C.hairline}` }}>
+      <button className="flex w-full items-center justify-between" onClick={() => setOpen((o) => !o)}>
+        <div className="text-left"><p className="text-sm" style={{ color: C.obsidian, fontWeight: 400 }}>{plan.name}</p><p className="fl-mono text-xs" style={{ color: C.feltGray }}>{plan.exercises.length} Übungen{plan.duration ? ` · ${plan.duration} Min` : ""}</p></div>
+        <Icon name="dumbbell" size={16} color={C.feltGray} />
+      </button>
+      {open && (
+        <div className="mt-3 space-y-1.5">
+          {plan.exercises.map((ex, i) => <div key={i} className="flex items-center justify-between text-sm" style={{ color: C.obsidian }}><span>{ex.name}</span><span className="fl-mono text-xs" style={{ color: C.feltGray }}>{ex.sets} × {ex.reps}</span></div>)}
+          <button onClick={() => onDelete(plan.id)} className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: C.obsidian }}><Icon name="trash" size={14} /> Löschen</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WeeklyVolumeChart({ sessions }) {
+  const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({ ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0) })), [sessions]);
+  const max = Math.max(...weeks.map((w) => w.minutes), 1);
+  const MAX_H = 88;
+  return (
+    <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
+      <p className="fl-heading mb-5 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Trainingsvolumen · letzte 8 Wochen</p>
+      <div className="flex items-end gap-2" style={{ height: MAX_H + 34 }}>
+        {weeks.map((w, i) => {
+          const h = w.minutes > 0 ? Math.max(3, Math.round((w.minutes / max) * MAX_H)) : 3;
+          return (
+            <div key={i} className="flex flex-1 flex-col items-center justify-end gap-1.5">
+              <span className="fl-mono text-[9px]" style={{ color: C.feltGray }}>{w.minutes > 0 ? w.minutes : ""}</span>
+              <div style={{ width: "60%", maxWidth: 20, height: h, background: w.minutes > 0 ? C.obsidian : C.ashMist }} />
+              <span className="fl-mono text-[9px]" style={{ color: C.feltGray }}>{w.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+function DisciplineDistribution({ sessions }) {
+  const total = sessions.length;
+  const rows = DISCIPLINES.map((d) => ({ ...d, count: sessions.filter((s) => s.discipline === d.key).length })).filter((d) => d.count > 0).sort((a, b) => b.count - a.count);
+  return (
+    <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
+      <p className="fl-heading mb-5 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Verteilung nach Disziplin</p>
+      {rows.length === 0 ? <p className="text-sm" style={{ color: C.feltGray }}>Noch keine Daten für eine Verteilung.</p> : (
+        <div className="space-y-4">
+          {rows.map((d) => {
+            const pct = total ? Math.round((d.count / total) * 100) : 0;
+            return (
+              <div key={d.key}>
+                <div className="mb-1.5 flex items-center justify-between text-xs"><span style={{ color: C.obsidian }}>{d.label}</span><span className="fl-mono" style={{ color: C.feltGray }}>{d.count} · {pct}%</span></div>
+                <div className="h-[3px]" style={{ background: C.hairline }}><div style={{ height: "100%", width: `${pct}%`, background: d.color }} /></div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+function BackupSection({ sessions, events, plans, onImport }) {
+  const [pending, setPending] = useState(null);
+  const [error, setError] = useState("");
+  const doExport = () => {
+    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `fight-log-backup-${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+  const onFile = (e) => {
+    const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+    setError("");
+    const reader = new FileReader();
+    reader.onload = () => { try { const data = JSON.parse(reader.result); if (!data || typeof data !== "object") throw new Error("invalid"); setPending(data); } catch (err) { setError("Datei konnte nicht gelesen werden. Ist es eine gültige Backup-Datei?"); } };
+    reader.readAsText(file);
+  };
+  const confirmImport = () => { onImport({ sessions: Array.isArray(pending.sessions) ? pending.sessions : [], events: Array.isArray(pending.events) ? pending.events : [], plans: Array.isArray(pending.plans) ? pending.plans : [] }); setPending(null); };
+  return (
+    <div className="p-5" style={{ border: `1px solid ${C.hairline}` }}>
+      <p className="fl-heading mb-1 text-lg" style={{ color: C.obsidian, fontWeight: 400 }}>Datensicherung</p>
+      <p className="mb-5 text-xs" style={{ color: C.feltGray }}>Deine Daten liegen nur auf diesem Gerät. Exportiere regelmäßig ein Backup oder übertrage es auf ein anderes Handy.</p>
+      <div className="flex gap-2">
+        <GhostButton onClick={doExport}><Icon name="download" size={16} /> Exportieren</GhostButton>
+        <label className="flex flex-1 cursor-pointer items-center justify-center gap-2 text-sm" style={{ background: "transparent", color: C.obsidian, border: `1px solid ${C.obsidian}`, borderRadius: 9999, padding: "12px 20px", fontWeight: 400 }}>
+          <Icon name="upload" size={16} /> Importieren
+          <input type="file" accept="application/json" onChange={onFile} className="hidden" />
+        </label>
+      </div>
+      {error && <p className="mt-4 flex items-center gap-1.5 text-xs" style={{ color: C.obsidian }}><Icon name="alertTriangle" size={14} /> {error}</p>}
+      {pending && (
+        <div className="mt-4 space-y-3 p-4" style={{ border: `1px solid ${C.obsidian}` }}>
+          <p className="text-sm" style={{ color: C.obsidian, fontWeight: 400 }}>Gefunden: {Array.isArray(pending.sessions) ? pending.sessions.length : 0} Trainings, {Array.isArray(pending.events) ? pending.events.length : 0} Termine, {Array.isArray(pending.plans) ? pending.plans.length : 0} Pläne</p>
+          <p className="text-xs" style={{ color: C.feltGray }}>Der Import ersetzt alle aktuellen Daten auf diesem Gerät unwiderruflich.</p>
+          <div className="flex gap-2"><GhostButton onClick={() => setPending(null)}>Abbrechen</GhostButton><PrimaryButton onClick={confirmImport}>Ersetzen &amp; importieren</PrimaryButton></div>
+        </div>
+      )}
+    </div>
+  );
+}
+function StatsView({ sessions, events, plans, onImport }) {
+  return (
+    <div className="space-y-6 pb-6">
+      <WeeklyVolumeChart sessions={sessions} />
+      <DisciplineDistribution sessions={sessions} />
+      <BackupSection sessions={sessions} events={events} plans={plans} onImport={onImport} />
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("log");
+  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [plans, setPlans] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadKey(key, setter) {
+      try { const res = await window.storage.get(key); if (mounted && res && res.value) setter(JSON.parse(res.value)); }
+      catch (e) {}
+    }
+    Promise.all([loadKey("sessions", setSessions), loadKey("events", setEvents), loadKey("plans", setPlans)]).finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  const persist = useCallback(async (key, value, setter) => {
+    setter(value);
+    try { await window.storage.set(key, JSON.stringify(value)); } catch (e) { console.error("storage error", e); }
+  }, []);
+
+  const addSession = (s) => persist("sessions", [s, ...sessions], setSessions);
+  const deleteSession = (id) => persist("sessions", sessions.filter((s) => s.id !== id), setSessions);
+  const addEvent = (e) => persist("events", [e, ...events], setEvents);
+  const deleteEvent = (id) => persist("events", events.filter((e) => e.id !== id), setEvents);
+  const addPlan = (p) => persist("plans", [p, ...plans], setPlans);
+  const deletePlan = (id) => persist("plans", plans.filter((p) => p.id !== id), setPlans);
+  const importAll = ({ sessions: s, events: e, plans: p }) => { persist("sessions", s, setSessions); persist("events", e, setEvents); persist("plans", p, setPlans); };
+
+  const TABS = [
+    { key: "log", label: "Training", icon: "clipboardList" },
+    { key: "calendar", label: "Kalender", icon: "calendarDays" },
+    { key: "strength", label: "Kraft & Ausdauer", icon: "dumbbell" },
+    { key: "stats", label: "Statistik", icon: "chart" },
+  ];
+
+  return (
+    <div className="min-h-screen w-full" style={{ background: C.paper }}>
+      <div className="fl-root mx-auto flex min-h-screen max-w-md flex-col" style={{ color: C.obsidian }}>
+        <header className="sticky top-0 z-10 flex items-center gap-3 px-5 py-6" style={{ background: `linear-gradient(90deg, rgba(0,0,0,0.9), rgba(0,0,0,0.9)), ${IRIDESCENT}` }}>
+          <div className="flex h-9 w-9 items-center justify-center" style={{ border: `1px solid ${C.paper}`, borderRadius: 9999 }}><Icon name="swords" size={16} color={C.paper} /></div>
+          <div>
+            <p className="fl-heading text-xl leading-none" style={{ color: C.paper, fontWeight: 300 }}>Fight Log</p>
+            <p className="fl-mono mt-1 text-[10px]" style={{ color: "rgba(255,255,255,0.6)" }}>Trainingstagebuch · Kampfsport</p>
+          </div>
+        </header>
+        <main className="flex-1 px-5 pt-6">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-24">
+              <Icon name="loader" size={22} className="icon-spin" color={C.obsidian} />
+              <p className="text-xs" style={{ color: C.feltGray }}>Lade Daten …</p>
+            </div>
+          ) : (
+            <>
+              {tab === "log" && <LogView sessions={sessions} addSession={addSession} deleteSession={deleteSession} />}
+              {tab === "calendar" && <CalendarView events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
+              {tab === "strength" && <StrengthView plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
+              {tab === "stats" && <StatsView sessions={sessions} events={events} plans={plans} onImport={importAll} />}
+            </>
+          )}
+        </main>
+        <nav className="sticky bottom-0 z-10 mt-6 grid grid-cols-4 gap-1 px-3 py-3" style={{ background: C.obsidian }}>
+          {TABS.map((t) => {
+            const active = tab === t.key;
+            return (
+              <button key={t.key} onClick={() => setTab(t.key)} className="flex flex-col items-center gap-1.5 py-1.5" style={{ color: active ? C.paper : C.ashMist }}>
+                <Icon name={t.icon} size={19} />
+                <span className="text-[9px] uppercase tracking-wide" style={{ fontWeight: active ? 600 : 400 }}>{t.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
