@@ -296,6 +296,22 @@ const WEEKDAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
+function findExerciseHistory(sessions, exerciseName) {
+  const name = (exerciseName || "").trim().toLowerCase();
+  if (!name) return null;
+  let best = null;
+  sessions.forEach((s) => {
+    if (s.discipline !== "strength" || !s.exerciseLog) return;
+    s.exerciseLog.forEach((ex) => {
+      if (ex.name.trim().toLowerCase() === name && (!best || s.date > best.date)) best = { date: s.date, sets: ex.sets };
+    });
+  });
+  return best;
+}
+function fmtSets(sets) {
+  return sets.filter((s) => s.weight || s.reps).map((s) => `${s.weight || "–"}${s.weight ? "kg" : ""}×${s.reps || "–"}`).join(", ");
+}
+
 /* ---------- primitives ---------- */
 function Label({ T, children }) {
   return <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, textTransform: "uppercase" }}>{children}</div>;
@@ -393,7 +409,7 @@ function SetInput({ T, value, onChange, placeholder }) {
   );
 }
 
-function ExerciseLogEditor({ T, log, setLog, plans }) {
+function ExerciseLogEditor({ T, log, setLog, plans, sessions }) {
   const [manualName, setManualName] = useState("");
 
   const usePlan = (plan) => {
@@ -438,6 +454,10 @@ function ExerciseLogEditor({ T, log, setLog, plans }) {
             <div>
               <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
               {ex.target && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>TARGET {ex.target}</div>}
+              {(() => {
+                const hist = findExerciseHistory(sessions || [], ex.name);
+                return hist && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>LAST TIME ({fmtDateShort(hist.date)}): {fmtSets(hist.sets)}</div>;
+              })()}
             </div>
             <button onClick={() => removeExercise(i)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="x" size={16} /></button>
           </div>
@@ -469,7 +489,7 @@ function ExerciseLogEditor({ T, log, setLog, plans }) {
 }
 
 /* ---------- session form ---------- */
-function SessionForm({ T, onSave, onCancel, last, plans }) {
+function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
   const [discipline, setDiscipline] = useState(last ? last.discipline : "mma");
   const [date, setDate] = useState(todayISO());
   const [duration, setDuration] = useState(last && last.duration ? last.duration : 90);
@@ -538,7 +558,7 @@ function SessionForm({ T, onSave, onCancel, last, plans }) {
 
       {isStrength ? (
         <div style={{ marginTop: 18 }}>
-          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} />
+          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} sessions={sessions || []} />
         </div>
       ) : (
         <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -651,7 +671,7 @@ function LogView({ T, sessions, addSession, deleteSession, plans }) {
         </div>
       )}
       {showForm && (
-        <SessionForm T={T} last={sorted[0]} plans={plans} onCancel={() => setShowForm(false)}
+        <SessionForm T={T} last={sorted[0]} plans={plans} sessions={sessions} onCancel={() => setShowForm(false)}
           onSave={(s) => { addSession(s); setShowForm(false); }} />
       )}
 
@@ -989,6 +1009,41 @@ function StrengthView({ T, plans, addPlan, addPlans, deletePlan }) {
   );
 }
 
+/* ---------- charts ---------- */
+function LineChart({ T, points, height = 90 }) {
+  const w = 300, pad = 10;
+  const vals = points.map((p) => p.y);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 1;
+  const stepX = points.length > 1 ? (w - pad * 2) / (points.length - 1) : 0;
+  const coords = points.map((p, i) => ({ x: pad + i * stepX, y: pad + (1 - (p.y - min) / range) * (height - pad * 2) }));
+  const path = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
+      <path d={path} fill="none" stroke={T.fg} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      {coords.map((c, i) => <circle key={i} cx={c.x} cy={c.y} r={i === coords.length - 1 ? 4 : 2.5} fill={T.bg} stroke={T.fg} strokeWidth="1.6" />)}
+      <text x={coords[coords.length - 1].x} y={coords[coords.length - 1].y - 10} textAnchor="end" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fontWeight="600" fill={T.fg}>
+        {points[points.length - 1].y}
+      </text>
+    </svg>
+  );
+}
+function Sparkline({ T, points, width = 56, height = 22 }) {
+  const vals = points.map((p) => p.y);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 1;
+  const stepX = points.length > 1 ? width / (points.length - 1) : 0;
+  const path = points.map((p, i) => {
+    const x = i * stepX, y = (1 - (p.y - min) / range) * height;
+    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
+      <path d={path} fill="none" stroke={T.muted} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /* ---------- personal records ---------- */
 function PRForm({ T, onSave, onCancel }) {
   const [exercise, setExercise] = useState("");
@@ -1015,29 +1070,152 @@ function PRForm({ T, onSave, onCancel }) {
   );
 }
 
-function PRsSection({ T, prs, addPR, deletePR }) {
-  const [showForm, setShowForm] = useState(false);
-  const sorted = useMemo(() => prs.slice().sort((a, b) => b.date.localeCompare(a.date)), [prs]);
+function PRGroupCard({ T, exercise, entries, deletePR }) {
+  const [open, setOpen] = useState(false);
+  const sorted = useMemo(() => entries.slice().sort((a, b) => a.date.localeCompare(b.date)), [entries]);
+  const latest = sorted[sorted.length - 1];
+  const prev = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+  const delta = prev ? +(latest.weight - prev.weight).toFixed(2) : null;
   return (
-    <div>
-      <Label T={T}>Personal Records</Label>
-      <div style={{ marginTop: 8 }}>
-        {sorted.length === 0
-          ? <Empty T={T} title="No PRs yet" body="Log your current best lifts." />
-          : sorted.map((p) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.rule}` }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{p.exercise}</div>
-                  <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{fmtDateShort(p.date)}</div>
-                </div>
-                <div className="fl-mono" style={{ fontSize: 19, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{p.weight}<span style={{ fontSize: 10, color: T.muted, marginLeft: 2 }}>kg</span></div>
-                <button onClick={() => deletePR(p.id)} style={{ background: "none", border: "none", color: T.muted, padding: 4 }}><Icon name="trash" size={15} /></button>
-              </div>
-            ))}
+    <div style={{ border: `1px solid ${T.rule}`, marginTop: 10 }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div>
+          <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{exercise}</div>
+          <div className="fl-mono" style={{ fontSize: 9, color: T.muted, marginTop: 5, letterSpacing: "0.08em" }}>{sorted.length} ENTR{sorted.length === 1 ? "Y" : "IES"} · SINCE {fmtDateShort(sorted[0].date)}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {delta !== null && <span className="fl-mono" style={{ fontSize: 10, fontWeight: 600, padding: "3px 6px", background: delta >= 0 ? T.winBg : T.lossBg, color: delta >= 0 ? T.win : T.loss }}>{delta >= 0 ? "+" : ""}{delta}kg</span>}
+          <span className="fl-mono" style={{ fontSize: 16, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{latest.weight}kg</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {sorted.length > 1 && <div style={{ marginBottom: 12 }}><LineChart T={T} points={sorted.map((e) => ({ x: e.date, y: e.weight }))} height={70} /></div>}
+          {sorted.slice().reverse().map((e) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: `1px solid ${T.rule}` }}>
+              <span className="fl-mono" style={{ fontSize: 10.5, color: T.muted }}>{fmtDateShort(e.date)}</span>
+              <span style={{ fontSize: 13, color: T.fg }}>{e.weight}kg</span>
+              <button onClick={() => deletePR(e.id)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="trash" size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PRsSection({ T, prs, addPR, deletePR }) {
+  const [open, setOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const grouped = useMemo(() => {
+    const map = {};
+    prs.forEach((p) => { (map[p.exercise] = map[p.exercise] || []).push(p); });
+    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [prs]);
+
+  return (
+    <div style={{ border: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Personal Records</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{grouped.length} tracked</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {grouped.length === 0
+            ? <Empty T={T} title="No PRs yet" body="Log your current best lifts." />
+            : grouped.map(([exercise, entries]) => <PRGroupCard key={exercise} T={T} exercise={exercise} entries={entries} deletePR={deletePR} />)}
+          {showForm
+            ? <PRForm T={T} onCancel={() => setShowForm(false)} onSave={(p) => { addPR(p); setShowForm(false); }} />
+            : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> Add PR</Primary></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- bodyweight ---------- */
+function BodyweightForm({ T, onSave, onCancel }) {
+  const [weight, setWeight] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const submit = () => {
+    const w = parseFloat(weight);
+    if (!w) return;
+    onSave({ id: uid(), weight: w, date, createdAt: Date.now() });
+  };
+  return (
+    <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 14, marginTop: 14 }}>
+      <Label T={T}>Weight (kg)</Label>
+      <div style={{ marginTop: 8 }}><Input T={T} type="number" step="0.1" placeholder="0" value={weight} onChange={(e) => setWeight(e.target.value)} /></div>
+      <div style={{ marginTop: 12 }}><Label T={T}>Date</Label>
+        <div style={{ marginTop: 8 }}><Input T={T} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
+      <div style={{ display: "flex", gap: 7, marginTop: 14 }}>
+        <Ghost T={T} onClick={onCancel}>Cancel</Ghost>
+        <div style={{ flex: 1 }}><Primary T={T} onClick={submit}>Save</Primary></div>
       </div>
-      {showForm
-        ? <PRForm T={T} onCancel={() => setShowForm(false)} onSave={(p) => { addPR(p); setShowForm(false); }} />
-        : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> Add PR</Primary></div>}
+    </div>
+  );
+}
+
+function BodyweightSection({ T, bodyweight, addBodyweight, deleteBodyweight }) {
+  const [open, setOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const sorted = useMemo(() => bodyweight.slice().sort((a, b) => a.date.localeCompare(b.date)), [bodyweight]);
+  const window8 = sorted.slice(-8);
+  const latest = sorted[sorted.length - 1];
+  const windowStart = window8[0];
+  const delta = latest && windowStart && windowStart.id !== latest.id ? +(latest.weight - windowStart.weight).toFixed(1) : null;
+
+  return (
+    <div style={{ border: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div>
+          <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Bodyweight</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+            {latest ? (
+              <>
+                <span className="fl-mono" style={{ fontSize: 19, fontWeight: 600, color: T.fg }}>{latest.weight}kg</span>
+                {delta !== null && <span className="fl-mono" style={{ fontSize: 10, fontWeight: 600, padding: "2px 5px", background: delta <= 0 ? T.winBg : T.lossBg, color: delta <= 0 ? T.win : T.loss }}>{delta > 0 ? "+" : ""}{delta}kg since {fmtDateShort(windowStart.date)}</span>}
+              </>
+            ) : <span className="fl-mono" style={{ fontSize: 13, color: T.muted }}>No entries yet</span>}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {window8.length > 1 && <Sparkline T={T} points={window8.map((e) => ({ x: e.date, y: e.weight }))} />}
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {window8.length > 1 && (
+            <div>
+              <LineChart T={T} points={window8.map((e) => ({ x: e.date, y: e.weight }))} height={90} />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                <span className="fl-mono" style={{ fontSize: 8.5, color: T.muted }}>{fmtDateShort(window8[0].date)}</span>
+                <span className="fl-mono" style={{ fontSize: 8.5, color: T.muted }}>{fmtDateShort(window8[window8.length - 1].date)}</span>
+              </div>
+            </div>
+          )}
+          {sorted.length === 0 && <Empty T={T} title="No bodyweight logged yet" body="Track your weight to see trends over time." />}
+          {showForm
+            ? <BodyweightForm T={T} onCancel={() => setShowForm(false)} onSave={(e) => { addBodyweight(e); setShowForm(false); }} />
+            : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> Log weight</Primary></div>}
+          {sorted.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              {sorted.slice().reverse().slice(0, 10).map((e) => (
+                <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: `1px solid ${T.rule}` }}>
+                  <span className="fl-mono" style={{ fontSize: 10.5, color: T.muted }}>{fmtDateShort(e.date)}</span>
+                  <span style={{ fontSize: 13, color: T.fg }}>{e.weight}kg</span>
+                  <button onClick={() => deleteBodyweight(e.id)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="trash" size={13} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1192,7 +1370,7 @@ function FightRecordSection({ T, fights, addFight, deleteFight }) {
 }
 
 /* ---------- stats ---------- */
-function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, onImport }) {
+function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, onImport }) {
   const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({
     ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
   })), [sessions]);
@@ -1205,7 +1383,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
   const [pending, setPending] = useState(null);
   const [error, setError] = useState("");
   const doExport = () => {
-    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans, prs, fights };
+    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans, prs, fights, bodyweight };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url; a.download = `fight-log-backup-${todayISO()}.json`;
@@ -1268,6 +1446,10 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
         <PRsSection T={T} prs={prs} addPR={addPR} deletePR={deletePR} />
       </div>
 
+      <div style={{ marginTop: 14 }}>
+        <BodyweightSection T={T} bodyweight={bodyweight} addBodyweight={addBodyweight} deleteBodyweight={deleteBodyweight} />
+      </div>
+
       <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
         <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Backup</div>
         <div style={{ fontSize: 12, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>
@@ -1298,7 +1480,8 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
                   events: Array.isArray(pending.events) ? pending.events : [],
                   plans: Array.isArray(pending.plans) ? pending.plans : [],
                   prs: Array.isArray(pending.prs) ? pending.prs : [],
-                  fights: Array.isArray(pending.fights) ? pending.fights : []
+                  fights: Array.isArray(pending.fights) ? pending.fights : [],
+                  bodyweight: Array.isArray(pending.bodyweight) ? pending.bodyweight : []
                 });
                 setPending(null);
               }} style={{ width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>Replace</button></div>
@@ -1329,6 +1512,7 @@ function App() {
   const [plans, setPlans] = useState([]);
   const [prs, setPrs] = useState([]);
   const [fights, setFights] = useState([]);
+  const [bodyweight, setBodyweight] = useState([]);
   const T = THEMES[theme] || THEMES.light;
 
   useEffect(() => {
@@ -1339,6 +1523,7 @@ function App() {
     Promise.all([
       loadKey("sessions", setSessions), loadKey("events", setEvents),
       loadKey("plans", setPlans), loadKey("prs", setPrs), loadKey("fights", setFights),
+      loadKey("bodyweight", setBodyweight),
       loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true)
     ]).finally(() => { if (on) setLoading(false); });
     return () => { on = false; };
@@ -1397,9 +1582,12 @@ function App() {
   const deletePR = (id) => persist("prs", prs.filter((p) => p.id !== id), setPrs);
   const addFight = (f) => persist("fights", [f, ...fights], setFights);
   const deleteFight = (id) => persist("fights", fights.filter((f) => f.id !== id), setFights);
+  const addBodyweight = (e) => persist("bodyweight", [e, ...bodyweight], setBodyweight);
+  const deleteBodyweight = (id) => persist("bodyweight", bodyweight.filter((e) => e.id !== id), setBodyweight);
   const importAll = (d) => {
     persist("sessions", d.sessions, setSessions); persist("events", d.events, setEvents); persist("plans", d.plans, setPlans);
     persist("prs", d.prs || [], setPrs); persist("fights", d.fights || [], setFights);
+    persist("bodyweight", d.bodyweight || [], setBodyweight);
   };
 
   return (
@@ -1430,7 +1618,7 @@ function App() {
               {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} plans={plans} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
               {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} addPlans={addPlans} deletePlan={deletePlan} />}
-              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} onImport={importAll} />}
+              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} bodyweight={bodyweight} addBodyweight={addBodyweight} deleteBodyweight={deleteBodyweight} onImport={importAll} />}
             </div>
           )}
         </main>
