@@ -68,8 +68,10 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 /* ---------- theme ---------- */
 const THEMES = {
-  light: { bg: "#f4f2ec", fg: "#12100e", rule: "#cdc8bd", muted: "#6b665d", body: "#4a463f", accent: "#c8342b" },
-  dark:  { bg: "#0e0d0c", fg: "#f4f2ec", rule: "#2c2a26", muted: "#8a857b", body: "#a9a396", accent: "#e05247" }
+  light: { bg: "#f4f2ec", fg: "#12100e", rule: "#cdc8bd", muted: "#6b665d", body: "#4a463f", accent: "#c8342b",
+    win: "#5c7a52", winBg: "rgba(92,122,82,0.12)", loss: "#c8342b", lossBg: "rgba(200,52,43,0.1)", draw: "#6b665d", drawBg: "rgba(107,102,93,0.1)" },
+  dark:  { bg: "#0e0d0c", fg: "#f4f2ec", rule: "#2c2a26", muted: "#8a857b", body: "#a9a396", accent: "#e05247",
+    win: "#7fa373", winBg: "rgba(127,163,115,0.14)", loss: "#e05247", lossBg: "rgba(224,82,71,0.14)", draw: "#8a857b", drawBg: "rgba(138,133,123,0.14)" }
 };
 
 /* ---------- icons ---------- */
@@ -121,6 +123,24 @@ const GOALS = [
   { key: "conditioning", label: "Conditioning" },
   { key: "mma", label: "MMA" }
 ];
+
+const FIGHT_CATEGORIES = [
+  { key: "mma-pro", label: "MMA (Pro)", type: "mma" },
+  { key: "mma-am", label: "MMA (Amateur)", type: "mma" },
+  { key: "k1-pro", label: "K1 / Muay Thai (Pro)", type: "striking" },
+  { key: "k1-am", label: "K1 / Muay Thai (Amateur)", type: "striking" },
+  { key: "box-pro", label: "Boxing (Pro)", type: "striking" },
+  { key: "box-am", label: "Boxing (Amateur)", type: "striking" },
+  { key: "bjj-gi", label: "BJJ (Gi)", type: "bjj" },
+  { key: "bjj-nogi", label: "BJJ (Nogi)", type: "bjj" }
+];
+const getFightCategory = (k) => FIGHT_CATEGORIES.find((c) => c.key === k) || FIGHT_CATEGORIES[0];
+const FIGHT_METHODS = {
+  mma: ["KO/TKO", "Submission", "Decision", "DQ"],
+  striking: ["KO/TKO", "Decision", "DQ"],
+  bjj: ["Submission", "Points", "Decision", "DQ"]
+};
+const RESULTS = ["W", "L", "D", "NC"];
 
 const POOLS = {
   warmupStrength: { name: "Dynamic warm-up (hips, shoulders, lunges)", sets: 1, reps: "8 min" },
@@ -855,8 +875,210 @@ function StrengthView({ T, plans, addPlan, deletePlan }) {
   );
 }
 
+/* ---------- personal records ---------- */
+function PRForm({ T, onSave, onCancel }) {
+  const [exercise, setExercise] = useState("");
+  const [weight, setWeight] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const submit = () => {
+    const w = parseFloat(weight);
+    if (!exercise.trim() || !w) return;
+    onSave({ id: uid(), exercise: exercise.trim(), weight: w, date, createdAt: Date.now() });
+  };
+  return (
+    <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 14, marginTop: 12 }}>
+      <Label T={T}>Exercise</Label>
+      <div style={{ marginTop: 8 }}><Input T={T} placeholder="e.g. Deadlift" value={exercise} onChange={(e) => setExercise(e.target.value)} /></div>
+      <div style={{ marginTop: 12 }}><Label T={T}>Weight (kg)</Label>
+        <div style={{ marginTop: 8 }}><Input T={T} type="number" step="0.5" placeholder="0" value={weight} onChange={(e) => setWeight(e.target.value)} /></div></div>
+      <div style={{ marginTop: 12 }}><Label T={T}>Date</Label>
+        <div style={{ marginTop: 8 }}><Input T={T} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
+      <div style={{ display: "flex", gap: 7, marginTop: 14 }}>
+        <Ghost T={T} onClick={onCancel}>Cancel</Ghost>
+        <div style={{ flex: 1 }}><Primary T={T} onClick={submit}>Save</Primary></div>
+      </div>
+    </div>
+  );
+}
+
+function PRsSection({ T, prs, addPR, deletePR }) {
+  const [showForm, setShowForm] = useState(false);
+  const sorted = useMemo(() => prs.slice().sort((a, b) => b.date.localeCompare(a.date)), [prs]);
+  return (
+    <div>
+      <Label T={T}>Personal Records</Label>
+      <div style={{ marginTop: 8 }}>
+        {sorted.length === 0
+          ? <Empty T={T} title="No PRs yet" body="Log your current best lifts." />
+          : sorted.map((p) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: `1px solid ${T.rule}` }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{p.exercise}</div>
+                  <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{fmtDateShort(p.date)}</div>
+                </div>
+                <div className="fl-mono" style={{ fontSize: 19, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{p.weight}<span style={{ fontSize: 10, color: T.muted, marginLeft: 2 }}>kg</span></div>
+                <button onClick={() => deletePR(p.id)} style={{ background: "none", border: "none", color: T.muted, padding: 4 }}><Icon name="trash" size={15} /></button>
+              </div>
+            ))}
+      </div>
+      {showForm
+        ? <PRForm T={T} onCancel={() => setShowForm(false)} onSave={(p) => { addPR(p); setShowForm(false); }} />
+        : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> Add PR</Primary></div>}
+    </div>
+  );
+}
+
+/* ---------- fight record ---------- */
+function ResultBadge({ T, result }) {
+  const map = { W: [T.winBg, T.win], L: [T.lossBg, T.loss], D: [T.drawBg, T.draw], NC: [T.drawBg, T.draw] };
+  const [bg, fg] = map[result] || map.D;
+  return <div className="fl-mono" style={{ width: 24, height: 24, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: bg, color: fg }}>{result}</div>;
+}
+
+function FightResultForm({ T, category, onSave, onCancel }) {
+  const cat = getFightCategory(category);
+  const methods = FIGHT_METHODS[cat.type];
+  const [result, setResult] = useState(null);
+  const [method, setMethod] = useState(null);
+  const [opponent, setOpponent] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState(false);
+  const submit = () => {
+    if (!result || !method) { setError(true); return; }
+    onSave({ id: uid(), category, result, method, opponent: opponent.trim(), notes: notes.trim(), date, createdAt: Date.now() });
+  };
+  return (
+    <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 14, marginTop: 12 }}>
+      <Label T={T}>Result</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+        {RESULTS.map((r) => {
+          const active = result === r;
+          const color = r === "W" ? T.win : r === "L" ? T.loss : T.draw;
+          return (
+            <button key={r} onClick={() => { setResult(r); setError(false); }} style={{
+              border: `1px solid ${active ? color : T.fg}`, background: active ? color : "transparent", color: active ? "#fff" : T.fg,
+              font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", padding: "13px 12px", borderRadius: 0
+            }}>{r}</button>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 14 }}><Label T={T}>Method</Label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+          {methods.map((m) => <Chip key={m} T={T} active={method === m} onClick={() => { setMethod(m); setError(false); }}>{m}</Chip>)}
+        </div>
+      </div>
+      {error && <div style={{ fontSize: 12, color: T.loss, marginTop: 10 }}>Pick a result and a method.</div>}
+      <div style={{ marginTop: 14 }}><Label T={T}>Opponent (optional)</Label>
+        <div style={{ marginTop: 8 }}><Input T={T} placeholder="Name" value={opponent} onChange={(e) => setOpponent(e.target.value)} /></div></div>
+      <div style={{ marginTop: 12 }}><Label T={T}>Date</Label>
+        <div style={{ marginTop: 8 }}><Input T={T} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
+      <div style={{ marginTop: 12 }}><Label T={T}>Notes (optional)</Label>
+        <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="Event, details …" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
+      <div style={{ display: "flex", gap: 7, marginTop: 14 }}>
+        <Ghost T={T} onClick={onCancel}>Cancel</Ghost>
+        <div style={{ flex: 1 }}><Primary T={T} onClick={submit}>Save result</Primary></div>
+      </div>
+    </div>
+  );
+}
+
+function FightCategoryCard({ T, category, fights, addFlow, setAddFlow, deleteFight, addFight }) {
+  const [manualOpen, setManualOpen] = useState(false);
+  const cat = getFightCategory(category);
+  const w = fights.filter((f) => f.result === "W").length;
+  const l = fights.filter((f) => f.result === "L").length;
+  const d = fights.filter((f) => f.result === "D" || f.result === "NC").length;
+  const methodCounts = {};
+  fights.forEach((f) => { if (f.result === "W") methodCounts[f.method] = (methodCounts[f.method] || 0) + 1; });
+  const methodLabel = Object.entries(methodCounts).map(([m, c]) => `${m} × ${c}`).join(" · ");
+  const sorted = useMemo(() => fights.slice().sort((a, b) => b.date.localeCompare(a.date)), [fights]);
+
+  const active = addFlow && addFlow.category === category;
+  const open = manualOpen || active;
+
+  return (
+    <div style={{ border: `1px solid ${T.rule}`, marginTop: 10 }}>
+      <button onClick={() => setManualOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div>
+          <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{cat.label}</div>
+          <div className="fl-mono" style={{ fontSize: 9, color: T.muted, marginTop: 5, letterSpacing: "0.08em" }}>{methodLabel || "NO WINS YET"}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="fl-mono" style={{ fontSize: 16, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{w}-{l}-{d}</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {sorted.map((f) => (
+            <div key={f.id} style={{ display: "flex", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
+              <ResultBadge T={T} result={f.result} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{f.method}</div>
+                <div className="fl-mono" style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>{[fmtDateShort(f.date), f.opponent].filter(Boolean).join(" · ")}</div>
+                {f.notes && <div style={{ fontSize: 12.5, color: T.body, marginTop: 5, lineHeight: 1.35 }}>{f.notes}</div>}
+              </div>
+              <button onClick={() => deleteFight(f.id)} style={{ background: "none", border: "none", color: T.muted, padding: 4 }}><Icon name="trash" size={14} /></button>
+            </div>
+          ))}
+          {!active && (
+            <Ghost T={T} onClick={() => setAddFlow({ category })}><Icon name="plus" size={13} /> Add result</Ghost>
+          )}
+          {active && (
+            <FightResultForm T={T} category={category} onCancel={() => setAddFlow(null)}
+              onSave={(f) => { addFight(f); setAddFlow(null); }} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FightRecordSection({ T, fights, addFight, deleteFight }) {
+  const [addFlow, setAddFlow] = useState(null); // null | { category } | { picking: true }
+  const populated = FIGHT_CATEGORIES.filter((c) => fights.some((f) => f.category === c.key));
+  const pickingNew = addFlow && addFlow.picking;
+  const newCategoryActive = addFlow && addFlow.category && !populated.some((c) => c.key === addFlow.category);
+
+  return (
+    <div>
+      <Label T={T}>Fight Record</Label>
+      <div style={{ marginTop: 8 }}>
+        {populated.length === 0
+          ? <Empty T={T} title="No fights logged yet" body="Add your first result using the button below." />
+          : populated.map((c) => (
+              <FightCategoryCard key={c.key} T={T} category={c.key} fights={fights.filter((f) => f.category === c.key)}
+                addFlow={addFlow} setAddFlow={setAddFlow} addFight={addFight} deleteFight={deleteFight} />
+            ))}
+      </div>
+
+      {pickingNew && (
+        <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 14, marginTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+            <Label T={T}>Which discipline?</Label>
+            <button onClick={() => setAddFlow(null)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="x" size={16} /></button>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+            {FIGHT_CATEGORIES.map((c) => <Chip key={c.key} T={T} onClick={() => setAddFlow({ category: c.key })}>{c.label}</Chip>)}
+          </div>
+        </div>
+      )}
+
+      {newCategoryActive && (
+        <FightResultForm T={T} category={addFlow.category} onCancel={() => setAddFlow(null)}
+          onSave={(f) => { addFight(f); setAddFlow(null); }} />
+      )}
+
+      {!addFlow && (
+        <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setAddFlow({ picking: true })}><Icon name="plus" size={15} /> Add result</Primary></div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- stats ---------- */
-function StatsView({ T, sessions, events, plans, onImport }) {
+function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, onImport }) {
   const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({
     ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
   })), [sessions]);
@@ -869,7 +1091,7 @@ function StatsView({ T, sessions, events, plans, onImport }) {
   const [pending, setPending] = useState(null);
   const [error, setError] = useState("");
   const doExport = () => {
-    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans };
+    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans, prs, fights };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url; a.download = `fight-log-backup-${todayISO()}.json`;
@@ -925,6 +1147,14 @@ function StatsView({ T, sessions, events, plans, onImport }) {
       </div>
 
       <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
+        <FightRecordSection T={T} fights={fights} addFight={addFight} deleteFight={deleteFight} />
+      </div>
+
+      <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
+        <PRsSection T={T} prs={prs} addPR={addPR} deletePR={deletePR} />
+      </div>
+
+      <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
         <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Backup</div>
         <div style={{ fontSize: 12, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>
           Your data lives on this device only. Export a file regularly or move it to another phone.
@@ -952,7 +1182,9 @@ function StatsView({ T, sessions, events, plans, onImport }) {
                 onImport({
                   sessions: Array.isArray(pending.sessions) ? pending.sessions : [],
                   events: Array.isArray(pending.events) ? pending.events : [],
-                  plans: Array.isArray(pending.plans) ? pending.plans : []
+                  plans: Array.isArray(pending.plans) ? pending.plans : [],
+                  prs: Array.isArray(pending.prs) ? pending.prs : [],
+                  fights: Array.isArray(pending.fights) ? pending.fights : []
                 });
                 setPending(null);
               }} style={{ width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>Replace</button></div>
@@ -981,6 +1213,8 @@ function App() {
   const [sessions, setSessions] = useState([]);
   const [events, setEvents] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [prs, setPrs] = useState([]);
+  const [fights, setFights] = useState([]);
   const T = THEMES[theme] || THEMES.light;
 
   useEffect(() => {
@@ -990,7 +1224,8 @@ function App() {
       .catch(() => {});
     Promise.all([
       loadKey("sessions", setSessions), loadKey("events", setEvents),
-      loadKey("plans", setPlans), loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true)
+      loadKey("plans", setPlans), loadKey("prs", setPrs), loadKey("fights", setFights),
+      loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true)
     ]).finally(() => { if (on) setLoading(false); });
     return () => { on = false; };
   }, []);
@@ -1043,7 +1278,14 @@ function App() {
   const deleteEvent = (id) => persist("events", events.filter((e) => e.id !== id), setEvents);
   const addPlan = (p) => persist("plans", [p, ...plans], setPlans);
   const deletePlan = (id) => persist("plans", plans.filter((p) => p.id !== id), setPlans);
-  const importAll = (d) => { persist("sessions", d.sessions, setSessions); persist("events", d.events, setEvents); persist("plans", d.plans, setPlans); };
+  const addPR = (p) => persist("prs", [p, ...prs], setPrs);
+  const deletePR = (id) => persist("prs", prs.filter((p) => p.id !== id), setPrs);
+  const addFight = (f) => persist("fights", [f, ...fights], setFights);
+  const deleteFight = (id) => persist("fights", fights.filter((f) => f.id !== id), setFights);
+  const importAll = (d) => {
+    persist("sessions", d.sessions, setSessions); persist("events", d.events, setEvents); persist("plans", d.plans, setPlans);
+    persist("prs", d.prs || [], setPrs); persist("fights", d.fights || [], setFights);
+  };
 
   return (
     <div className="fl-root" style={{ background: T.bg, color: T.fg, minHeight: "100vh" }}>
@@ -1073,7 +1315,7 @@ function App() {
               {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} plans={plans} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
               {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
-              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} onImport={importAll} />}
+              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} onImport={importAll} />}
             </div>
           )}
         </main>
