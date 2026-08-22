@@ -117,11 +117,27 @@ const EVENT_TYPES = [
   { key: "competition", label: "Competition" }
 ];
 const getEventType = (k) => EVENT_TYPES.find((e) => e.key === k) || EVENT_TYPES[0];
-const GOALS = [
-  { key: "strength", label: "Strength" },
+const SC_GOALS = [
+  { key: "max-strength", label: "Max Strength" },
+  { key: "hypertrophy", label: "Hypertrophy" },
   { key: "power", label: "Power" },
-  { key: "conditioning", label: "Conditioning" },
-  { key: "mma", label: "MMA" }
+  { key: "strength-endurance", label: "Strength-Endurance" }
+];
+const SC_EQUIPMENT = [
+  { key: "bw", label: "Bodyweight" },
+  { key: "hg", label: "Home Gym" },
+  { key: "fg", label: "Full Gym" }
+];
+const SC_FAMILIARITY = [
+  { key: "beginner", label: "Beginner" },
+  { key: "intermediate", label: "Intermediate" },
+  { key: "advanced", label: "Advanced" }
+];
+const SC_SESSION_COUNTS = [2, 3, 4];
+const SC_ENDURANCE_EQUIPMENT = [
+  { key: "assault-bike", label: "Assault Bike" },
+  { key: "running", label: "Running" },
+  { key: "bike", label: "Bike" }
 ];
 
 const FIGHT_CATEGORIES = [
@@ -142,45 +158,109 @@ const FIGHT_METHODS = {
 };
 const RESULTS = ["W", "L", "D", "NC"];
 
-const POOLS = {
-  warmupStrength: { name: "Dynamic warm-up (hips, shoulders, lunges)", sets: 1, reps: "8 min" },
-  warmupCond: { name: "Easy jog / skipping rope", sets: 1, reps: "5 min" },
-  strength: [
-    { name: "Back Squat", sets: 4, reps: "5" }, { name: "Deadlift", sets: 3, reps: "5" },
-    { name: "Bench Press", sets: 4, reps: "6" }, { name: "Pull-ups", sets: 4, reps: "Max" },
-    { name: "Barbell Row", sets: 4, reps: "8" }, { name: "Overhead Press", sets: 3, reps: "8" },
-    { name: "Bulgarian Split Squat", sets: 3, reps: "8 per leg" }, { name: "Farmers Walk", sets: 3, reps: "30 m" },
-    { name: "Plank", sets: 3, reps: "60 sec" }, { name: "Neck Bridges", sets: 3, reps: "10" }
-  ],
-  power: [
-    { name: "Box Jumps", sets: 4, reps: "5" }, { name: "Kettlebell Swings", sets: 4, reps: "15" },
-    { name: "Med-Ball Rotational Throw", sets: 4, reps: "8 per side" }, { name: "Power Clean", sets: 5, reps: "3" },
-    { name: "Broad Jumps", sets: 4, reps: "5" }, { name: "Sprints", sets: 6, reps: "20 m" },
-    { name: "Plyo Push-ups", sets: 3, reps: "8" }, { name: "Battle Rope Slams", sets: 4, reps: "20 sec" }
-  ],
-  conditioning: [
-    { name: "Bike Sprints (round structure)", sets: 6, reps: "30 sec / 90 sec rest" }, { name: "Burpee Round", sets: 5, reps: "60 sec" },
-    { name: "Sled Push", sets: 6, reps: "20 m" }, { name: "Skipping Rope Round", sets: 5, reps: "3 min" },
-    { name: "Rower Intervals", sets: 8, reps: "250 m" }, { name: "Shadow Boxing with Weight Vest", sets: 5, reps: "3 min round" },
-    { name: "Circuit (ropes / KB / burpees)", sets: 4, reps: "1 round" }
-  ],
-  mmaSpecific: [
-    { name: "Sledgehammer Tire Strikes", sets: 4, reps: "30 sec" }, { name: "Tire Flips", sets: 5, reps: "8" },
-    { name: "Sprawl-to-Sprint", sets: 5, reps: "30 sec" }, { name: "Towel Pull-ups (grip)", sets: 3, reps: "Max" },
-    { name: "Explosive Med-Ball Sprawls", sets: 4, reps: "10" }, { name: "Power Clean", sets: 4, reps: "3" },
-    { name: "Kettlebell Swings", sets: 4, reps: "15" }
-  ]
+/* exercise entry: { n: name, role: primary|secondary|core|hold|failure, uni: true → "/leg" suffix } */
+const UPPER_EX = {
+  fg: [{ n: "Bench Press", role: "primary" }, { n: "Barbell Row", role: "secondary" }, { n: "Lat Pulldown", role: "secondary" }, { n: "Military Press", role: "secondary" }, { n: "Palloff Press", role: "core" }],
+  hg: [{ n: "DB Bench Press", role: "primary" }, { n: "DB Row", role: "secondary" }, { n: "DB Shoulder Press", role: "secondary" }, { n: "Band Face Pull", role: "secondary" }, { n: "Pallof Press (band)", role: "core" }],
+  bw: [{ n: "Push-up", role: "primary" }, { n: "Inverted Row", role: "secondary" }, { n: "Pike Push-up", role: "secondary" }, { n: "Plank", role: "hold" }, { n: "Dead Bug", role: "core" }]
 };
-const shuffleArr = (a) => [...a].sort(() => Math.random() - 0.5);
-const pick = (pool, n) => shuffleArr(pool).slice(0, Math.min(n, pool.length));
-function generatePlan(goal, duration) {
-  const count = duration <= 30 ? 3 : duration <= 45 ? 4 : duration <= 60 ? 6 : 8;
-  let exercises = [], warmup = POOLS.warmupStrength;
-  if (goal === "strength") exercises = pick(POOLS.strength, count);
-  else if (goal === "power") exercises = pick(POOLS.power, count);
-  else if (goal === "conditioning") { exercises = pick(POOLS.conditioning, count); warmup = POOLS.warmupCond; }
-  else exercises = pick([...POOLS.mmaSpecific, ...POOLS.power], count);
-  return { warmup, exercises };
+const LOWER_A_EX = {
+  fg: [{ n: "Back Squat", role: "primary" }, { n: "Leg Curl Machine", role: "secondary" }, { n: "Barbell Hip Thrust", role: "secondary" }, { n: "Back Extension (weighted hold)", role: "hold" }],
+  hg: [{ n: "Goblet Squat", role: "primary" }, { n: "DB Romanian Deadlift", role: "secondary" }, { n: "DB Hip Thrust", role: "secondary" }, { n: "Back Extension (bodyweight hold)", role: "hold" }],
+  bw: [{ n: "Bodyweight Squat", role: "primary" }, { n: "Single-Leg RDL", role: "secondary", uni: true }, { n: "Glute Bridge", role: "secondary" }, { n: "Superman Hold", role: "hold" }]
+};
+const LOWER_B_EX = {
+  fg: [{ n: "Deadlift", role: "primary" }, { n: "Front Squat", role: "secondary" }, { n: "Reverse Barbell Lunge", role: "secondary", uni: true }, { n: "Landmine Anti-Rotation", role: "core" }],
+  hg: [{ n: "DB Romanian Deadlift", role: "primary" }, { n: "DB Front-Loaded Squat", role: "secondary" }, { n: "DB Reverse Lunge", role: "secondary", uni: true }, { n: "Pallof Press (band)", role: "core" }],
+  bw: [{ n: "Single-Leg RDL", role: "primary", uni: true }, { n: "Bulgarian Split Squat", role: "secondary", uni: true }, { n: "Reverse Lunge", role: "secondary", uni: true }, { n: "Dead Bug", role: "core" }]
+};
+const FULL_EX = {
+  fg: [{ n: "Back Squat", role: "primary" }, { n: "Bench Press", role: "secondary" }, { n: "Barbell Row", role: "secondary" }, { n: "Lat Pulldown", role: "secondary" }, { n: "Plank", role: "hold" }],
+  hg: [{ n: "Goblet Squat", role: "primary" }, { n: "DB Bench Press", role: "secondary" }, { n: "DB Row", role: "secondary" }, { n: "Pallof Press (band)", role: "core" }, { n: "Glute Bridge", role: "secondary" }],
+  bw: [{ n: "Bodyweight Squat", role: "primary" }, { n: "Push-up", role: "secondary" }, { n: "Glute Bridge", role: "secondary" }, { n: "Plank", role: "hold" }, { n: "Reverse Lunge", role: "secondary", uni: true }]
+};
+const POWER_UPPER_EX = {
+  fg: [{ n: "Bench Press", role: "primary" }, { n: "Barbell Row", role: "secondary" }, { n: "Push Press", role: "secondary" }, { n: "Pull-up", role: "failure" }],
+  hg: [{ n: "DB Bench Press", role: "primary" }, { n: "DB Row", role: "secondary" }, { n: "DB Push Press", role: "secondary" }, { n: "Inverted Row", role: "failure" }],
+  bw: [{ n: "Clap Push-up", role: "primary" }, { n: "Explosive Inverted Row", role: "secondary" }, { n: "Pike Push-up", role: "secondary" }, { n: "Pull-up", role: "failure" }]
+};
+const POWER_UPPER_SUPERSET = {
+  fg: ["Landmine Anti-Rotation", "Palloff Press"],
+  hg: ["Pallof Press (band)", "Bird Dog"],
+  bw: ["Bird Dog", "Dead Bug"]
+};
+const POWER_LOWER_EX = {
+  fg: [{ n: "Power Clean", role: "explosive", sets: 5, reps: "2" }, { n: "Back Squat", role: "secondary", sets: 4, reps: "3" }, { n: "Deadlift", role: "secondary", sets: 3, reps: "3" }, { n: "Bulgarian Split Squat", role: "fixed", sets: 2, reps: "8", uni: true }],
+  hg: [{ n: "Kettlebell Swing", role: "explosive", sets: 5, reps: "5" }, { n: "Goblet Squat", role: "secondary", sets: 4, reps: "6" }, { n: "DB Romanian Deadlift", role: "secondary", sets: 3, reps: "6" }, { n: "DB Bulgarian Split Squat", role: "fixed", sets: 2, reps: "8", uni: true }],
+  bw: [{ n: "Broad Jump", role: "explosive", sets: 5, reps: "5" }, { n: "Jump Squat", role: "secondary", sets: 4, reps: "6" }, { n: "Single-Leg RDL", role: "secondary", sets: 3, reps: "8", uni: true }, { n: "Bulgarian Split Squat", role: "fixed", sets: 2, reps: "8", uni: true }]
+};
+const POWER_LOWER_HOLD = { fg: "Back Extension (weighted hold)", hg: "Back Extension (bodyweight hold)", bw: "Superman Hold" };
+const PLYO_SPRINTS_EX = ["Broad Jump", "Box Jump", "Jump Squat", "Skater Jump", "Sprints (20–40m)"];
+
+const SC_PRESCRIBE_TABLE = {
+  "max-strength": { primary: [5, "4"], secondary: [3, "5"], core: [3, "10"], hold: [2, "30–45s"], failure: [3, "To failure"] },
+  "hypertrophy": { primary: [3, "10"], secondary: [3, "10"], core: [3, "12"], hold: [3, "45s"], failure: [3, "To failure"] },
+  "power": { primary: [4, "3"], secondary: [4, "3"], core: [2, "8"], hold: [2, "25s"], failure: [3, "To failure"] },
+  "strength-endurance": { primary: [3, "15"], secondary: [3, "15"], core: [3, "15"], hold: [3, "35s"], failure: [3, "To failure"] }
+};
+function prescribe(goal, ex) {
+  if (ex.sets && ex.reps !== undefined) return { sets: ex.sets, reps: ex.reps + (ex.uni ? "/leg" : "") };
+  const [sets, baseReps] = SC_PRESCRIBE_TABLE[goal][ex.role] || [3, "10"];
+  let reps = baseReps;
+  if (ex.role !== "hold" && ex.role !== "failure") {
+    if (ex.uni) reps = baseReps + "/leg";
+    else if (ex.role === "core") reps = baseReps + "/side";
+  }
+  return { sets, reps };
+}
+function buildSession(goal, exList) { return exList.map((ex) => { const p = prescribe(goal, ex); return { name: ex.n, sets: p.sets, reps: p.reps }; }); }
+
+function buildStrengthWeek(goal, sessionsPerWeek, equipment, familiarity) {
+  const isPower = goal === "power";
+  const days = [];
+  if (isPower) {
+    const upper = () => buildSession(goal, POWER_UPPER_EX[equipment]).concat(
+      POWER_UPPER_SUPERSET[equipment].map((n) => ({ name: `${n} (superset)`, sets: 2, reps: "8/side" }))
+    );
+    const lower = () => {
+      const list = POWER_LOWER_EX[equipment].map((ex) => ({ ...ex }));
+      if (familiarity !== "advanced" && equipment === "fg") { list[0] = { n: "Kettlebell Swing", role: "explosive", sets: 5, reps: "8" }; }
+      return buildSession(goal, list).concat([{ name: POWER_LOWER_HOLD[equipment], sets: 2, reps: "25–30s" }]);
+    };
+    const plyo = () => PLYO_SPRINTS_EX.map((n, i) => ({ name: n, sets: i < PLYO_SPRINTS_EX.length - 1 ? 4 : 6, reps: i < PLYO_SPRINTS_EX.length - 1 ? "5" : "30–40m" }));
+    if (sessionsPerWeek === 2) days.push({ label: "Upper", exercises: upper() }, { label: "Lower", exercises: lower() });
+    else if (sessionsPerWeek === 3) days.push({ label: "Upper", exercises: upper() }, { label: "Lower", exercises: lower() }, { label: "Plyo + Sprints", exercises: plyo() });
+    else days.push({ label: "Upper A", exercises: upper() }, { label: "Lower A", exercises: lower() }, { label: "Upper B", exercises: upper() }, { label: "Lower B", exercises: lower() });
+  } else {
+    const upper = () => buildSession(goal, UPPER_EX[equipment]);
+    const lowerA = () => buildSession(goal, LOWER_A_EX[equipment]);
+    const lowerB = () => buildSession(goal, LOWER_B_EX[equipment]);
+    const full = () => buildSession(goal, FULL_EX[equipment]);
+    if (sessionsPerWeek === 2) days.push({ label: "Full Body A", exercises: full() }, { label: "Full Body B", exercises: full() });
+    else if (sessionsPerWeek === 3) days.push({ label: "Upper", exercises: upper() }, { label: "Lower", exercises: lowerA() }, { label: "Full Body", exercises: full() });
+    else days.push({ label: "Upper A", exercises: upper() }, { label: "Lower A", exercises: lowerA() }, { label: "Upper B", exercises: upper() }, { label: "Lower B", exercises: lowerB() });
+  }
+  const circuit = goal === "strength-endurance";
+  return days.map((d) => ({ ...d, circuit }));
+}
+
+function buildEnduranceWeek(sessionsPerWeek, equipment, familiarity) {
+  const modality = SC_ENDURANCE_EQUIPMENT.find((e) => e.key === equipment).label;
+  const scale = familiarity === "beginner" ? 0.7 : familiarity === "advanced" ? 1.25 : 1;
+  const kinds = sessionsPerWeek === 2 ? ["capacity", "threshold"]
+    : sessionsPerWeek === 3 ? ["capacity", "threshold", "capacity"]
+    : ["capacity", "threshold", "capacity", "threshold"];
+  const seen = {};
+  return kinds.map((kind) => {
+    seen[kind] = (seen[kind] || 0) + 1;
+    const n = seen[kind] > 1 ? ` ${seen[kind]}` : "";
+    if (kind === "capacity") {
+      const sets = Math.max(6, Math.round(10 * scale));
+      return { label: `Anaerobic Capacity${n}`, exercises: [{ name: `${modality} Sprints`, sets, reps: "30s max effort / 90s easy" }], circuit: false };
+    }
+    const sets = Math.max(3, Math.round(5 * scale));
+    return { label: `Anaerobic Threshold${n}`, exercises: [{ name: `${modality} Intervals`, sets, reps: "4 min hard-controlled / 2 min easy" }], circuit: false };
+  });
 }
 
 /* ---------- dates ---------- */
@@ -458,7 +538,7 @@ function SessionForm({ T, onSave, onCancel, last, plans }) {
 
       {isStrength ? (
         <div style={{ marginTop: 18 }}>
-          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={plans || []} />
+          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} />
         </div>
       ) : (
         <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -748,83 +828,117 @@ function PlanRow({ T, plan, onDelete }) {
   );
 }
 
-function StrengthView({ T, plans, addPlan, deletePlan }) {
-  const [goal, setGoal] = useState("mma");
-  const [duration, setDuration] = useState(45);
+function ScQuestionRow({ T, label, options, value, onChange }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <Label T={T}>{label}</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+        {options.map((o) => <Chip key={o.key} T={T} active={value === o.key} onClick={() => onChange(o.key)}>{o.label}</Chip>)}
+      </div>
+    </div>
+  );
+}
+
+function ScDraftPreview({ T, days, programName, setProgramName, onSave, onDiscard }) {
+  return (
+    <div style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Weekly program</div>
+        <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{days.length} SESSIONS</div>
+      </div>
+      {days.map((d, di) => (
+        <div key={di} style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+            <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{d.label}</div>
+            {d.circuit && <span className="fl-mono" style={{ fontSize: 8.5, color: T.muted, letterSpacing: "0.06em" }}>CIRCUIT · REST AFTER EACH ROUND</span>}
+          </div>
+          {d.exercises.map((ex, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderTop: `1px solid ${T.rule}` }}>
+              <div style={{ flex: 1, fontSize: 14, color: T.fg }}>{ex.name}</div>
+              <div className="fl-mono" style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>{ex.sets} × {ex.reps}</div>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div style={{ marginTop: 14 }}><Input T={T} placeholder="Program name" value={programName} onChange={(e) => setProgramName(e.target.value)} /></div>
+      <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
+        <Ghost T={T} onClick={onDiscard}>Discard</Ghost>
+        <div style={{ flex: 1 }}><Primary T={T} onClick={onSave}>Save program</Primary></div>
+      </div>
+    </div>
+  );
+}
+
+function StrengthView({ T, plans, addPlan, addPlans, deletePlan }) {
+  const [mode, setMode] = useState("strength");
+  const [goal, setGoal] = useState("max-strength");
+  const [equipment, setEquipment] = useState("fg");
+  const [enduranceEquipment, setEnduranceEquipment] = useState("running");
+  const [familiarity, setFamiliarity] = useState("intermediate");
+  const [sessionsPerWeek, setSessionsPerWeek] = useState(3);
   const [draft, setDraft] = useState(null);
-  const [planName, setPlanName] = useState("");
+  const [programName, setProgramName] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState([]);
   const [mName, setMName] = useState(""), [mSets, setMSets] = useState(""), [mReps, setMReps] = useState("");
 
-  const roll = () => { setDraft(generatePlan(goal, duration)); setPlanName(`${GOALS.find((g) => g.key === goal).label} · ${duration} min`); };
-  const save = () => {
-    if (!draft || draft.exercises.length === 0) return;
-    addPlan({ id: uid(), name: planName.trim() || "Plan", goal, duration, exercises: [draft.warmup, ...draft.exercises], createdAt: Date.now() });
-    setDraft(null); setPlanName("");
+  const switchMode = (m) => { setMode(m); setDraft(null); };
+  const generate = () => {
+    if (mode === "strength") {
+      setDraft(buildStrengthWeek(goal, sessionsPerWeek, equipment, familiarity));
+      setProgramName(`${SC_GOALS.find((g) => g.key === goal).label} · ${sessionsPerWeek}x/week`);
+    } else {
+      setDraft(buildEnduranceWeek(sessionsPerWeek, enduranceEquipment, familiarity));
+      setProgramName(`Endurance · ${sessionsPerWeek}x/week`);
+    }
+  };
+  const saveProgram = () => {
+    if (!draft) return;
+    const base = programName.trim() || "Program";
+    const now = Date.now();
+    addPlans(draft.map((d, i) => ({ id: uid(), name: `${base} · ${d.label}`, goal: mode, duration: null, exercises: d.exercises, createdAt: now - i })));
+    setDraft(null); setProgramName("");
   };
   const addManual = () => { if (!mName.trim()) return; setManual((l) => [...l, { name: mName.trim(), sets: mSets || "-", reps: mReps || "-" }]); setMName(""); setMSets(""); setMReps(""); };
   const saveManual = () => {
     if (manual.length === 0) return;
-    addPlan({ id: uid(), name: planName.trim() || "Custom plan", goal: "custom", duration: null, exercises: manual, createdAt: Date.now() });
-    setManual([]); setPlanName(""); setManualOpen(false);
+    addPlan({ id: uid(), name: programName.trim() || "Custom plan", goal: "custom", duration: null, exercises: manual, createdAt: Date.now() });
+    setManual([]); setProgramName(""); setManualOpen(false);
   };
 
   return (
     <div>
-      <Label T={T}>Goal</Label>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
-        {GOALS.map((g) => <Chip key={g.key} T={T} active={goal === g.key} onClick={() => setGoal(g.key)}>{g.label}</Chip>)}
+      <div style={{ display: "flex", gap: 7 }}>
+        <SmallChip T={T} active={mode === "strength"} onClick={() => switchMode("strength")}>STRENGTH</SmallChip>
+        <SmallChip T={T} active={mode === "endurance"} onClick={() => switchMode("endurance")}>ENDURANCE</SmallChip>
       </div>
-      <div style={{ marginTop: 18 }}><Label T={T}>Minutes</Label>
+
+      {mode === "strength" && <ScQuestionRow T={T} label="Goal" options={SC_GOALS} value={goal} onChange={setGoal} />}
+
+      <div style={{ marginTop: 18 }}><Label T={T}>Sessions / week</Label>
         <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
-          {[30, 45, 60, 90].map((d) => (
-            <button key={d} onClick={() => setDuration(d)} className="fl-mono" style={{
-              flex: 1, border: `1px solid ${T.fg}`, background: duration === d ? T.fg : "transparent",
-              color: duration === d ? T.bg : T.fg, fontSize: 15, fontWeight: 600, padding: "14px 0", borderRadius: 0
-            }}>{d}</button>
+          {SC_SESSION_COUNTS.map((n) => (
+            <button key={n} onClick={() => setSessionsPerWeek(n)} className="fl-mono" style={{
+              flex: 1, border: `1px solid ${T.fg}`, background: sessionsPerWeek === n ? T.fg : "transparent",
+              color: sessionsPerWeek === n ? T.bg : T.fg, fontSize: 15, fontWeight: 600, padding: "14px 0", borderRadius: 0
+            }}>{n}</button>
           ))}
         </div>
       </div>
-      <div style={{ margin: "16px 0 14px", paddingBottom: 14, borderBottom: `1px solid ${T.rule}` }}>
-        <Primary T={T} onClick={roll}><Icon name="shuffle" size={16} /> Generate plan</Primary>
+
+      {mode === "strength"
+        ? <ScQuestionRow T={T} label="Equipment" options={SC_EQUIPMENT} value={equipment} onChange={setEquipment} />
+        : <ScQuestionRow T={T} label="Equipment" options={SC_ENDURANCE_EQUIPMENT} value={enduranceEquipment} onChange={setEnduranceEquipment} />}
+
+      <ScQuestionRow T={T} label="Familiarity" options={SC_FAMILIARITY} value={familiarity} onChange={setFamiliarity} />
+
+      <div style={{ margin: "18px 0 14px", paddingBottom: 14, borderBottom: `1px solid ${T.rule}` }}>
+        <Primary T={T} onClick={generate}>Generate program</Primary>
       </div>
 
       {draft && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Draft</div>
-            <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{draft.exercises.length + 1} EXERCISES</div>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, color: T.muted }}>{draft.warmup.name}</div>
-                <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{draft.warmup.reps}</div>
-              </div>
-            </div>
-            {draft.exercises.map((ex, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 15, color: T.fg }}>{ex.name}</div>
-                  <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{ex.sets} × {ex.reps}</div>
-                </div>
-                <button onClick={() => setDraft((d) => ({ ...d, exercises: d.exercises.filter((_, idx) => idx !== i) }))}
-                  style={{ width: 34, height: 34, border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Icon name="x" size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={planName} onChange={(e) => setPlanName(e.target.value)} /></div>
-          <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
-            <Ghost T={T} onClick={roll}><Icon name="shuffle" size={14} /> Reshuffle</Ghost>
-            <div style={{ flex: 1 }}><button onClick={save} style={{
-              width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0,
-              font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase"
-            }}>Save plan</button></div>
-          </div>
-        </div>
+        <ScDraftPreview T={T} days={draft} programName={programName} setProgramName={setProgramName}
+          onSave={saveProgram} onDiscard={() => setDraft(null)} />
       )}
 
       <div style={{ borderTop: `1px solid ${T.rule}`, paddingTop: 14 }}>
@@ -855,7 +969,7 @@ function StrengthView({ T, plans, addPlan, deletePlan }) {
                       style={{ width: 34, height: 34, border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, borderRadius: 0 }}>×</button>
                   </div>
                 ))}
-                <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={planName} onChange={(e) => setPlanName(e.target.value)} /></div>
+                <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={programName} onChange={(e) => setProgramName(e.target.value)} /></div>
                 <div style={{ marginTop: 10 }}><Primary T={T} onClick={saveManual}>Save plan</Primary></div>
               </div>
             )}
@@ -1277,6 +1391,7 @@ function App() {
   const addEvent = (e) => persist("events", [e, ...events], setEvents);
   const deleteEvent = (id) => persist("events", events.filter((e) => e.id !== id), setEvents);
   const addPlan = (p) => persist("plans", [p, ...plans], setPlans);
+  const addPlans = (ps) => persist("plans", [...ps, ...plans], setPlans);
   const deletePlan = (id) => persist("plans", plans.filter((p) => p.id !== id), setPlans);
   const addPR = (p) => persist("prs", [p, ...prs], setPrs);
   const deletePR = (id) => persist("prs", prs.filter((p) => p.id !== id), setPrs);
@@ -1314,7 +1429,7 @@ function App() {
             <div style={{ marginTop: tab === "log" ? 0 : 10 }}>
               {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} plans={plans} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
-              {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
+              {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} addPlans={addPlans} deletePlan={deletePlan} />}
               {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} onImport={importAll} />}
             </div>
           )}
