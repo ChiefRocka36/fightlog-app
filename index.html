@@ -19,7 +19,7 @@
 
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
-  html, body { margin: 0; overscroll-behavior: none; background: #f4f2ec; }
+  html, body { margin: 0; overscroll-behavior: none; background: #f4f2ec; overflow-x: hidden; }
   body.fl-dark { background: #0e0d0c; }
   #root, .fl-root, .fl-root input, .fl-root textarea, .fl-root select, .fl-root button {
     font-family: Archivo, system-ui, -apple-system, sans-serif;
@@ -63,7 +63,7 @@
 </script>
 
 <script type="text/babel" data-presets="react">
-const { useState, useEffect, useMemo, useCallback } = React;
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 /* ---------- theme ---------- */
 const THEMES = {
@@ -371,7 +371,7 @@ function ExerciseLogEditor({ T, log, setLog, plans }) {
 function SessionForm({ T, onSave, onCancel, last, plans }) {
   const [discipline, setDiscipline] = useState(last ? last.discipline : "mma");
   const [date, setDate] = useState(todayISO());
-  const [duration, setDuration] = useState(last ? last.duration : 90);
+  const [duration, setDuration] = useState(last && last.duration ? last.duration : 90);
   const [intensity, setIntensity] = useState(4);
   const [notes, setNotes] = useState("");
   const [didWell, setDidWell] = useState("");
@@ -380,11 +380,11 @@ function SessionForm({ T, onSave, onCancel, last, plans }) {
   const isStrength = discipline === "strength";
   const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
   const submit = () => onSave({
-    id: uid(), discipline, date, duration: Number(duration) || 0, intensity,
+    id: uid(), discipline, date, duration: isStrength ? 0 : Number(duration) || 0, intensity: isStrength ? null : intensity,
     notes: notes.trim(), didWell: didWell.trim(), toImprove: toImprove.trim(),
     exerciseLog: isStrength ? exerciseLog : [], createdAt: Date.now()
   });
-  const repeat = () => { if (!last) return; setDiscipline(last.discipline); setDuration(last.duration); setIntensity(last.intensity); };
+  const repeat = () => { if (!last) return; setDiscipline(last.discipline); if (last.duration) setDuration(last.duration); setIntensity(last.intensity || 4); };
   return (
     <div style={{ borderTop: `2px solid ${T.fg}`, marginTop: 4 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 0 0" }}>
@@ -396,7 +396,7 @@ function SessionForm({ T, onSave, onCancel, last, plans }) {
         <button onClick={repeat} className="fl-mono" style={{
           width: "100%", marginTop: 14, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
           height: 44, fontSize: 11, letterSpacing: "0.12em", borderRadius: 0, textTransform: "uppercase"
-        }}>↻ Repeat: {getDiscipline(last.discipline).label} {last.duration}′</button>
+        }}>↻ Repeat: {getDiscipline(last.discipline).label}{last.duration ? ` ${last.duration}′` : ""}</button>
       )}
 
       <div style={{ marginTop: 18 }}><Label T={T}>Discipline</Label>
@@ -413,23 +413,27 @@ function SessionForm({ T, onSave, onCancel, last, plans }) {
         </div>
       </div>
 
-      <div style={{ marginTop: 18 }}><Label T={T}>Duration</Label>
-        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
-          <button onClick={() => step(-15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>–</button>
-          <div style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0" }}>
-            <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
-            <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
+      {!isStrength && (
+        <div style={{ marginTop: 18 }}><Label T={T}>Duration</Label>
+          <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+            <button onClick={() => step(-15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>–</button>
+            <div style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0" }}>
+              <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
+              <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
+            </div>
+            <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
           </div>
-          <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
+          <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+            {[45, 60, 90, 120].map((d) => <SmallChip key={d} T={T} active={Number(duration) === d} onClick={() => setDuration(d)}>{d} MIN</SmallChip>)}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
-          {[45, 60, 90, 120].map((d) => <SmallChip key={d} T={T} active={Number(duration) === d} onClick={() => setDuration(d)}>{d} MIN</SmallChip>)}
-        </div>
-      </div>
+      )}
 
-      <div style={{ marginTop: 18 }}><Label T={T}>Intensity · RPE</Label>
-        <div style={{ marginTop: 11 }}><RpeRow T={T} value={intensity} onChange={setIntensity} /></div>
-      </div>
+      {!isStrength && (
+        <div style={{ marginTop: 18 }}><Label T={T}>Intensity · RPE</Label>
+          <div style={{ marginTop: 11 }}><RpeRow T={T} value={intensity} onChange={setIntensity} /></div>
+        </div>
+      )}
 
       {isStrength ? (
         <div style={{ marginTop: 18 }}>
@@ -462,10 +466,10 @@ function SessionRow({ T, session, onDelete }) {
           <div className="fl-mono" style={{ fontSize: 12, fontWeight: 600, color: T.fg }}>{fmtDayShort(session.date)}</div>
           <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>{fmtDateShort(session.date)}</div>
         </div>
-        <div style={{ flex: 1, padding: "14px 0 14px 14px" }}>
+        <div style={{ flex: 1, minWidth: 0, padding: "14px 0 14px 14px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted }}>{disc.label}</div>
-            <div className="fl-mono" style={{ fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>
+            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{disc.label}</div>
+            {!!session.duration && <div className="fl-mono" style={{ flex: "none", fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>}
           </div>
           {!open && session.exerciseLog && session.exerciseLog.length > 0 && (
             <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -477,7 +481,7 @@ function SessionRow({ T, session, onDelete }) {
               {session.notes || session.didWell}
             </div>
           )}
-          <div style={{ marginTop: 10 }}><RpeBars T={T} value={session.intensity} /></div>
+          {!!session.intensity && <div style={{ marginTop: 10 }}><RpeBars T={T} value={session.intensity} /></div>}
         </div>
       </button>
       {open && (
@@ -1006,8 +1010,34 @@ function App() {
     window.storage.set("theme", next).catch(() => {});
   };
 
-  const addSession = (s) => persist("sessions", [s, ...sessions], setSessions);
-  const deleteSession = (id) => persist("sessions", sessions.filter((s) => s.id !== id), setSessions);
+  const touchRef = useRef(null);
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY, onScroller: !!(e.target.closest && e.target.closest(".fl-scroll-x")) };
+  };
+  const onTouchEnd = (e) => {
+    if (!touchRef.current || touchRef.current.onScroller) { touchRef.current = null; return; }
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    touchRef.current = null;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const idx = TABS.findIndex((tb) => tb.key === tab);
+    if (dx < 0 && idx < TABS.length - 1) setTab(TABS[idx + 1].key);
+    else if (dx > 0 && idx > 0) setTab(TABS[idx - 1].key);
+  };
+
+  const addSession = (s) => {
+    persist("sessions", [s, ...sessions], setSessions);
+    persist("events", [{
+      id: uid(), date: s.date, type: "training", title: getDiscipline(s.discipline).label,
+      time: "", location: "", notes: "", createdAt: Date.now(), sourceSessionId: s.id
+    }, ...events], setEvents);
+  };
+  const deleteSession = (id) => {
+    persist("sessions", sessions.filter((s) => s.id !== id), setSessions);
+    persist("events", events.filter((e) => e.sourceSessionId !== id), setEvents);
+  };
   const addEvent = (e) => persist("events", [e, ...events], setEvents);
   const deleteEvent = (id) => persist("events", events.filter((e) => e.id !== id), setEvents);
   const addPlan = (p) => persist("plans", [p, ...plans], setPlans);
@@ -1031,19 +1061,19 @@ function App() {
           }}>{theme === "dark" ? "DARK" : "LIGHT"}</button>
         </header>
 
-        <main style={{ flex: 1, padding: "0 20px 28px" }}>
+        <main style={{ flex: 1, padding: "0 20px 28px" }} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           {loading ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "90px 0", color: T.muted }}>
               <span className="icon-spin" style={{ display: "block" }}><Icon name="loader" size={22} /></span>
               <span className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.16em" }}>LOADING</span>
             </div>
           ) : (
-            <>
+            <div style={{ marginTop: tab === "log" ? 0 : 10 }}>
               {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} plans={plans} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
               {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} deletePlan={deletePlan} />}
               {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} onImport={importAll} />}
-            </>
+            </div>
           )}
         </main>
 
