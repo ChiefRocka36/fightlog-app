@@ -329,8 +329,53 @@ function findExerciseHistory(sessions, exerciseName) {
   });
   return best;
 }
-function fmtSets(sets) {
-  return sets.filter((s) => s.weight || s.reps).map((s) => `${s.weight || "–"}${s.weight ? "kg" : ""}×${s.reps || "–"}`).join(", ");
+function fmtSets(sets, type) {
+  return sets.filter((s) => s.weight || s.reps).map((s) => {
+    if (type === "hold") return s.reps || "–";
+    if (type === "bodyweight") return `${s.weight ? "+" + s.weight + "kg" : "BW"}×${s.reps || "–"}`;
+    return `${s.weight || "–"}${s.weight ? "kg" : ""}×${s.reps || "–"}`;
+  }).join(", ");
+}
+
+const EXERCISE_LIBRARY = [
+  { name: "Pull-up", type: "bodyweight" }, { name: "Chin-up", type: "bodyweight" }, { name: "Dip", type: "bodyweight" },
+  { name: "Push-up", type: "bodyweight" }, { name: "Muscle-up", type: "bodyweight" }, { name: "Handstand Push-up", type: "bodyweight" },
+  { name: "Pistol Squat", type: "bodyweight" }, { name: "Inverted Row", type: "bodyweight" }, { name: "Bodyweight Squat", type: "bodyweight" },
+  { name: "Nordic Curl", type: "bodyweight" },
+  { name: "Plank", type: "hold" }, { name: "Side Plank", type: "hold" }, { name: "Wall Sit", type: "hold" },
+  { name: "Dead Hang", type: "hold" }, { name: "L-Sit", type: "hold" }, { name: "Hollow Body Hold", type: "hold" },
+  { name: "Back Extension Hold", type: "hold" }, { name: "Superman Hold", type: "hold" },
+  { name: "Back Squat", type: "weighted" }, { name: "Front Squat", type: "weighted" }, { name: "Goblet Squat", type: "weighted" },
+  { name: "Bulgarian Split Squat", type: "weighted" }, { name: "Deadlift", type: "weighted" }, { name: "Romanian Deadlift", type: "weighted" },
+  { name: "Sumo Deadlift", type: "weighted" }, { name: "Trap Bar Deadlift", type: "weighted" }, { name: "Bench Press", type: "weighted" },
+  { name: "Incline Bench Press", type: "weighted" }, { name: "Close-Grip Bench Press", type: "weighted" }, { name: "Overhead Press", type: "weighted" },
+  { name: "Military Press", type: "weighted" }, { name: "Push Press", type: "weighted" }, { name: "Barbell Row", type: "weighted" },
+  { name: "Pendlay Row", type: "weighted" }, { name: "Seated Cable Row", type: "weighted" }, { name: "Lat Pulldown", type: "weighted" },
+  { name: "Face Pull", type: "weighted" }, { name: "Walking Lunge", type: "weighted" }, { name: "Reverse Lunge", type: "weighted" },
+  { name: "Hip Thrust", type: "weighted" }, { name: "Leg Press", type: "weighted" }, { name: "Leg Curl", type: "weighted" },
+  { name: "Leg Extension", type: "weighted" }, { name: "Calf Raise", type: "weighted" }, { name: "Bicep Curl", type: "weighted" },
+  { name: "Hammer Curl", type: "weighted" }, { name: "Tricep Extension", type: "weighted" }, { name: "Tricep Pushdown", type: "weighted" },
+  { name: "Lateral Raise", type: "weighted" }, { name: "Front Raise", type: "weighted" }, { name: "Shrug", type: "weighted" },
+  { name: "Kettlebell Swing", type: "weighted" }, { name: "Farmers Walk", type: "weighted" }, { name: "Power Clean", type: "weighted" },
+  { name: "Hang Clean", type: "weighted" }, { name: "Clean and Jerk", type: "weighted" }, { name: "Snatch", type: "weighted" },
+  { name: "Box Jump", type: "bodyweight" }, { name: "Broad Jump", type: "bodyweight" }, { name: "Jump Squat", type: "bodyweight" },
+  { name: "Skater Jump", type: "bodyweight" }, { name: "Sprint", type: "bodyweight" },
+  { name: "Landmine Anti-Rotation", type: "weighted" }, { name: "Pallof Press", type: "weighted" }
+];
+function inferExerciseType(name) {
+  const n = (name || "").trim().toLowerCase();
+  const known = EXERCISE_LIBRARY.find((e) => e.name.toLowerCase() === n);
+  if (known) return known.type;
+  if (/\bhold\b|plank|wall sit|dead ?hang|l-sit|hollow body/.test(n)) return "hold";
+  if (/pull-?up|chin-?up|\bdip(s)?\b|push-?up|muscle-?up|pistol squat|handstand|nordic curl/.test(n)) return "bodyweight";
+  return "weighted";
+}
+function collectKnownExerciseNames(sessions, plans) {
+  const map = new Map();
+  EXERCISE_LIBRARY.forEach((e) => map.set(e.name.toLowerCase(), e.name));
+  (sessions || []).forEach((s) => (s.exerciseLog || []).forEach((ex) => { if (ex.name && !map.has(ex.name.toLowerCase())) map.set(ex.name.toLowerCase(), ex.name); }));
+  (plans || []).forEach((p) => (p.exercises || []).forEach((ex) => { if (ex.name && !map.has(ex.name.toLowerCase())) map.set(ex.name.toLowerCase(), ex.name); }));
+  return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
 }
 
 /* ---------- primitives ---------- */
@@ -395,13 +440,13 @@ function Empty({ T, title, body }) {
 }
 
 /* ---------- strength exercise log ---------- */
-function SetInput({ T, value, onChange, placeholder }) {
+function SetInput({ T, value, onChange, placeholder, inputMode }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      inputMode="decimal"
+      inputMode={inputMode || "decimal"}
       className="fl-mono"
       style={{
         width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
@@ -411,7 +456,33 @@ function SetInput({ T, value, onChange, placeholder }) {
   );
 }
 
-function ExerciseLogEditor({ T, log, setLog, plans, sessions }) {
+function ExerciseNameInput({ T, value, onChange, knownNames, placeholder }) {
+  const [focused, setFocused] = useState(false);
+  const q = value.trim().toLowerCase();
+  const matches = q.length > 0
+    ? (knownNames || []).filter((n) => n.toLowerCase().includes(q) && n.toLowerCase() !== q).slice(0, 6)
+    : [];
+  return (
+    <div style={{ position: "relative" }}>
+      <Input T={T} placeholder={placeholder || "Exercise name"} value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)} />
+      {focused && matches.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 5, background: T.bg, border: `1px solid ${T.fg}`, borderTop: "none" }}>
+          {matches.map((n) => (
+            <button key={n} onMouseDown={() => onChange(n)} style={{
+              display: "block", width: "100%", textAlign: "left", padding: "10px 12px", background: "transparent",
+              border: "none", borderTop: `1px solid ${T.rule}`, color: T.fg, fontSize: 14, cursor: "pointer"
+            }}>{n}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
   const [manualName, setManualName] = useState("");
 
   const usePlan = (plan) => {
@@ -444,48 +515,53 @@ function ExerciseLogEditor({ T, log, setLog, plans, sessions }) {
 
       <div style={{ marginTop: plans.length > 0 ? 18 : 0 }}>
         <Label T={T}>Add exercise</Label>
-        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
-          <div style={{ flex: 1 }}><Input T={T} placeholder="Exercise name" value={manualName} onChange={(e) => setManualName(e.target.value)} /></div>
-          <button onClick={addExercise} style={{ width: 52, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 22, borderRadius: 0 }}>+</button>
+        <div style={{ display: "flex", gap: 7, marginTop: 11, alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}><ExerciseNameInput T={T} value={manualName} onChange={setManualName} knownNames={exerciseNames} /></div>
+          <button onClick={addExercise} style={{ width: 52, height: 47, flex: "none", border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 22, borderRadius: 0 }}>+</button>
         </div>
       </div>
 
-      {log.map((ex, i) => (
-        <div key={i} style={{ marginTop: 14, border: `1px solid ${T.rule}`, padding: 12 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-            <div>
-              <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
-              {ex.target && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>TARGET {ex.target}</div>}
-              {(() => {
-                const hist = findExerciseHistory(sessions || [], ex.name);
-                return hist && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>LAST TIME ({fmtDateShort(hist.date)}): {fmtSets(hist.sets)}</div>;
-              })()}
-            </div>
-            <button onClick={() => removeExercise(i)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="x" size={16} /></button>
-          </div>
-
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <div className="fl-mono" style={{ width: 20, fontSize: 9, color: T.muted }}>#</div>
-              <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>WEIGHT</div>
-              <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>REPS</div>
-              <div style={{ width: 24 }} />
-            </div>
-            {ex.sets.map((s, si) => (
-              <div key={si} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <div className="fl-mono" style={{ width: 20, fontSize: 12, color: T.muted }}>{si + 1}</div>
-                <div style={{ flex: 1 }}><SetInput T={T} value={s.weight} onChange={(v) => updateSet(i, si, "weight", v)} placeholder="kg" /></div>
-                <div style={{ flex: 1 }}><SetInput T={T} value={s.reps} onChange={(v) => updateSet(i, si, "reps", v)} placeholder="reps" /></div>
-                <button onClick={() => removeSet(i, si)} style={{ width: 24, height: 24, background: "none", border: "none", color: T.muted }}>×</button>
+      {log.map((ex, i) => {
+        const type = inferExerciseType(ex.name);
+        const weightLabel = type === "bodyweight" ? "ADDED WEIGHT" : "WEIGHT";
+        const weightPlaceholder = type === "bodyweight" ? "optional" : "kg";
+        const repsLabel = type === "hold" ? "TIME" : "REPS";
+        const repsPlaceholder = type === "hold" ? "e.g. 45s" : "reps";
+        const hist = findExerciseHistory(sessions || [], ex.name);
+        return (
+          <div key={i} style={{ marginTop: 14, border: `1px solid ${T.rule}`, padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+              <div>
+                <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
+                {ex.target && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>TARGET {ex.target}</div>}
+                {hist && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>LAST TIME ({fmtDateShort(hist.date)}): {fmtSets(hist.sets, type)}</div>}
               </div>
-            ))}
+              <button onClick={() => removeExercise(i)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="x" size={16} /></button>
+            </div>
+
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className="fl-mono" style={{ width: 20, fontSize: 9, color: T.muted }}>#</div>
+                <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>{weightLabel}</div>
+                <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>{repsLabel}</div>
+                <div style={{ width: 24 }} />
+              </div>
+              {ex.sets.map((s, si) => (
+                <div key={si} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div className="fl-mono" style={{ width: 20, fontSize: 12, color: T.muted }}>{si + 1}</div>
+                  <div style={{ flex: 1 }}><SetInput T={T} value={s.weight} onChange={(v) => updateSet(i, si, "weight", v)} placeholder={weightPlaceholder} /></div>
+                  <div style={{ flex: 1 }}><SetInput T={T} value={s.reps} onChange={(v) => updateSet(i, si, "reps", v)} placeholder={repsPlaceholder} inputMode={type === "hold" ? "text" : "decimal"} /></div>
+                  <button onClick={() => removeSet(i, si)} style={{ width: 24, height: 24, background: "none", border: "none", color: T.muted }}>×</button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => addSet(i)} className="fl-mono" style={{
+              width: "100%", marginTop: 10, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
+              height: 36, fontSize: 10, letterSpacing: "0.1em", borderRadius: 0, textTransform: "uppercase"
+            }}>+ Add set</button>
           </div>
-          <button onClick={() => addSet(i)} className="fl-mono" style={{
-            width: "100%", marginTop: 10, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
-            height: 36, fontSize: 10, letterSpacing: "0.1em", borderRadius: 0, textTransform: "uppercase"
-          }}>+ Add set</button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -510,33 +586,35 @@ function EnduranceLogEditor({ T, value, onChange }) {
 }
 
 /* ---------- session form ---------- */
-function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
-  const [discipline, setDiscipline] = useState(last ? last.discipline : "mma");
-  const [date, setDate] = useState(todayISO());
-  const [duration, setDuration] = useState(last && last.duration ? last.duration : 90);
-  const [notes, setNotes] = useState("");
-  const [didWell, setDidWell] = useState("");
-  const [toImprove, setToImprove] = useState("");
-  const [exerciseLog, setExerciseLog] = useState([]);
-  const [endurance, setEndurance] = useState({ type: "", distanceM: "", notes: "" });
+function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames, editSession }) {
+  const [discipline, setDiscipline] = useState(editSession ? editSession.discipline : last ? last.discipline : "mma");
+  const [date, setDate] = useState(editSession ? editSession.date : todayISO());
+  const [duration, setDuration] = useState(editSession ? editSession.duration || 0 : last && last.duration ? last.duration : 90);
+  const [notes, setNotes] = useState(editSession && editSession.discipline !== "conditioning" ? editSession.notes || "" : "");
+  const [didWell, setDidWell] = useState(editSession ? editSession.didWell || "" : "");
+  const [toImprove, setToImprove] = useState(editSession ? editSession.toImprove || "" : "");
+  const [exerciseLog, setExerciseLog] = useState(editSession ? editSession.exerciseLog || [] : []);
+  const [endurance, setEndurance] = useState(editSession && editSession.discipline === "conditioning"
+    ? { type: editSession.enduranceType || "", distanceM: editSession.enduranceDistance != null ? String(editSession.enduranceDistance) : "", notes: editSession.notes || "" }
+    : { type: "", distanceM: "", notes: "" });
   const isStrength = discipline === "strength";
   const isEndurance = discipline === "conditioning";
   const isMobility = discipline === "mobility";
   const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
   const submit = () => onSave({
-    id: uid(), discipline, date, duration: Number(duration) || 0,
+    id: editSession ? editSession.id : uid(), discipline, date, duration: Number(duration) || 0,
     notes: isEndurance ? endurance.notes.trim() : notes.trim(),
     didWell: didWell.trim(), toImprove: toImprove.trim(),
     exerciseLog: isStrength ? exerciseLog : [],
     enduranceType: isEndurance ? endurance.type : "",
     enduranceDistance: isEndurance && endurance.distanceM ? Number(endurance.distanceM) : null,
-    createdAt: Date.now()
+    createdAt: editSession ? editSession.createdAt : Date.now()
   });
   const repeat = () => { if (!last) return; setDiscipline(last.discipline); if (last.duration) setDuration(last.duration); };
   return (
     <div style={{ borderTop: `2px solid ${T.fg}`, marginTop: 4 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 0 0" }}>
-        <div style={{ font: "700 22px/1 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>New session</div>
+        <div style={{ font: "700 22px/1 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>{editSession ? "Edit session" : "New session"}</div>
         <button onClick={onCancel} style={{ background: "none", border: "none", color: T.muted, padding: 6 }}><Icon name="x" size={20} /></button>
       </div>
 
@@ -577,7 +655,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
 
       {isStrength ? (
         <div style={{ marginTop: 18 }}>
-          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} sessions={sessions || []} />
+          <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} sessions={sessions || []} exerciseNames={exerciseNames} />
         </div>
       ) : isEndurance ? (
         <div style={{ marginTop: 18 }}>
@@ -600,7 +678,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
 }
 
 /* ---------- log ---------- */
-function SessionRow({ T, session, onDelete }) {
+function SessionRow({ T, session, onDelete, onEdit }) {
   const [open, setOpen] = useState(false);
   const disc = getDiscipline(session.discipline);
   return (
@@ -640,11 +718,17 @@ function SessionRow({ T, session, onDelete }) {
                 <div key={i}>
                   <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                    {ex.sets.filter((s) => s.weight || s.reps).map((s, si) => (
-                      <span key={si} className="fl-mono" style={{ fontSize: 11, color: T.body, border: `1px solid ${T.rule}`, padding: "5px 8px" }}>
-                        {s.weight || "–"}{s.weight ? "kg" : ""} × {s.reps || "–"}
-                      </span>
-                    ))}
+                    {ex.sets.filter((s) => s.weight || s.reps).map((s, si) => {
+                      const type = inferExerciseType(ex.name);
+                      const text = type === "hold" ? (s.reps || "–")
+                        : type === "bodyweight" ? `${s.weight ? "+" + s.weight + "kg" : "BW"} × ${s.reps || "–"}`
+                        : `${s.weight || "–"}${s.weight ? "kg" : ""} × ${s.reps || "–"}`;
+                      return (
+                        <span key={si} className="fl-mono" style={{ fontSize: 11, color: T.body, border: `1px solid ${T.rule}`, padding: "5px 8px" }}>
+                          {text}
+                        </span>
+                      );
+                    })}
                     {ex.sets.every((s) => !s.weight && !s.reps) && <span style={{ fontSize: 12, color: T.muted }}>No sets logged</span>}
                   </div>
                 </div>
@@ -662,18 +746,25 @@ function SessionRow({ T, session, onDelete }) {
               <div key={l}><Label T={T}>{l}</Label>
                 <div style={{ fontSize: 14, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{v}</div></div>
             ))}
-          <button onClick={() => onDelete(session.id)} className="fl-mono" style={{
-            alignSelf: "flex-start", background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
-            borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
-          }}><Icon name="trash" size={14} /> DELETE</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => onEdit(session)} className="fl-mono" style={{
+              background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
+              borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
+            }}>✎ EDIT</button>
+            <button onClick={() => onDelete(session.id)} className="fl-mono" style={{
+              background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
+              borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
+            }}><Icon name="trash" size={14} /> DELETE</button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function LogView({ T, sessions, addSession, deleteSession, plans }) {
+function LogView({ T, sessions, addSession, updateSession, deleteSession, plans, exerciseNames }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingSession, setEditingSession] = useState(null);
   const [filter, setFilter] = useState("all");
   const sorted = useMemo(() => [...sessions].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt)), [sessions]);
   const filtered = filter === "all" ? sorted : sorted.filter((s) => s.discipline === filter);
@@ -698,27 +789,31 @@ function LogView({ T, sessions, addSession, deleteSession, plans }) {
         ))}
       </div>
 
-      {!showForm && (
+      {!showForm && !editingSession && (
         <div style={{ padding: "14px 0 12px" }}>
           <Primary T={T} onClick={() => setShowForm(true)}><span style={{ fontSize: 19, lineHeight: 1 }}>+</span> Log session</Primary>
         </div>
       )}
       {showForm && (
-        <SessionForm T={T} last={sorted[0]} plans={plans} sessions={sessions} onCancel={() => setShowForm(false)}
+        <SessionForm T={T} last={sorted[0]} plans={plans} sessions={sessions} exerciseNames={exerciseNames} onCancel={() => setShowForm(false)}
           onSave={(s) => { addSession(s); setShowForm(false); }} />
       )}
+      {editingSession && (
+        <SessionForm T={T} editSession={editingSession} plans={plans} sessions={sessions} exerciseNames={exerciseNames} onCancel={() => setEditingSession(null)}
+          onSave={(s) => { updateSession(s); setEditingSession(null); }} />
+      )}
 
-      {!showForm && (
+      {!showForm && !editingSession && (
         <div className="fl-scroll-x" style={{ display: "flex", gap: 6, paddingBottom: 14 }}>
           <Chip T={T} active={filter === "all"} onClick={() => setFilter("all")}>All</Chip>
           {DISCIPLINES.map((d) => <Chip key={d.key} T={T} active={filter === d.key} onClick={() => setFilter(d.key)}>{d.label}</Chip>)}
         </div>
       )}
 
-      {!showForm && (filtered.length === 0
-        ? <Empty T={T} title="No sessions yet" body="Log the session you just finished — discipline, minutes, RPE. Notes are optional." />
+      {!showForm && !editingSession && (filtered.length === 0
+        ? <Empty T={T} title="No sessions yet" body="Log the session you just finished — discipline, minutes, notes. Notes are optional." />
         : <div style={{ borderTop: `1px solid ${T.rule}` }}>
-            {filtered.map((s) => <SessionRow key={s.id} T={T} session={s} onDelete={deleteSession} />)}
+            {filtered.map((s) => <SessionRow key={s.id} T={T} session={s} onDelete={deleteSession} onEdit={setEditingSession} />)}
           </div>)}
     </div>
   );
@@ -850,19 +945,37 @@ function CalendarView({ T, events, addEvent, deleteEvent }) {
 }
 
 /* ---------- strength & conditioning ---------- */
-function PlanRow({ T, plan, onDelete }) {
+function PlanRow({ T, plan, onDelete, onRename }) {
   const [open, setOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(plan.name);
+  const commitRename = () => {
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== plan.name) onRename(plan.id, trimmed);
+    else setName(plan.name);
+    setRenaming(false);
+  };
   return (
     <div style={{ borderTop: `1px solid ${T.rule}` }}>
-      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: "13px 0", textAlign: "left" }}>
-        <div>
-          <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{plan.name}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "13px 0" }}>
+        <div style={{ flex: 1, minWidth: 0, cursor: renaming ? "default" : "pointer" }} onClick={() => !renaming && setOpen((o) => !o)}>
+          {renaming ? (
+            <Input T={T} value={name} onChange={(e) => setName(e.target.value)} autoFocus
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") { setName(plan.name); setRenaming(false); } }}
+              onBlur={commitRename} style={{ padding: "8px 10px", fontSize: 14 }} />
+          ) : (
+            <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{plan.name}</div>
+          )}
           <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>
             {plan.exercises.length} EXERCISES{plan.duration ? ` · ${plan.duration} MIN` : ""}
           </div>
         </div>
-        <span style={{ fontSize: 18, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
-      </button>
+        {!renaming && (
+          <button onClick={() => { setName(plan.name); setRenaming(true); }} style={{ flex: "none", background: "transparent", border: "none", color: T.muted, padding: 6, fontSize: 15, cursor: "pointer" }}>✎</button>
+        )}
+        <button onClick={() => setOpen((o) => !o)} style={{ flex: "none", background: "transparent", border: "none", color: T.muted, padding: 6, fontSize: 18, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s", cursor: "pointer" }}>+</button>
+      </div>
       {open && (
         <div style={{ paddingBottom: 14, display: "flex", flexDirection: "column", gap: 9 }}>
           {plan.exercises.map((ex, i) => (
@@ -922,7 +1035,7 @@ function ScDraftPreview({ T, days, programName, setProgramName, onSave, onDiscar
   );
 }
 
-function StrengthView({ T, plans, addPlan, addPlans, deletePlan }) {
+function StrengthView({ T, plans, addPlan, addPlans, deletePlan, renamePlan, exerciseNames }) {
   const [mode, setMode] = useState("strength");
   const [goal, setGoal] = useState("max-strength");
   const [equipment, setEquipment] = useState("fg");
@@ -961,7 +1074,43 @@ function StrengthView({ T, plans, addPlan, addPlans, deletePlan }) {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 7 }}>
+      <div style={{ paddingBottom: 14, borderBottom: `1px solid ${T.rule}` }}>
+        <button onClick={() => setManualOpen((o) => !o)} style={{
+          display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
+          background: "transparent", border: "none", padding: 0, color: T.fg
+        }}>
+          <span style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase" }}>Build your own</span>
+          <span style={{ fontSize: 18, color: T.muted, transform: manualOpen ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </button>
+        {manualOpen && (
+          <div style={{ marginTop: 12 }}>
+            <ExerciseNameInput T={T} placeholder="Exercise" value={mName} onChange={setMName} knownNames={exerciseNames} />
+            <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+              <div style={{ flex: 1 }}><Input T={T} placeholder="Sets" value={mSets} onChange={(e) => setMSets(e.target.value)} /></div>
+              <div style={{ flex: 2 }}><Input T={T} placeholder="Reps" value={mReps} onChange={(e) => setMReps(e.target.value)} /></div>
+            </div>
+            <div style={{ display: "flex", marginTop: 7 }}><Ghost T={T} onClick={addManual}><Icon name="plus" size={14} /> Add exercise</Ghost></div>
+            {manual.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                {manual.map((ex, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 15, color: T.fg }}>{ex.name}</div>
+                      <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{ex.sets} × {ex.reps}</div>
+                    </div>
+                    <button onClick={() => setManual((l) => l.filter((_, idx) => idx !== i))}
+                      style={{ width: 34, height: 34, border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, borderRadius: 0 }}>×</button>
+                  </div>
+                ))}
+                <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={programName} onChange={(e) => setProgramName(e.target.value)} /></div>
+                <div style={{ marginTop: 10 }}><Primary T={T} onClick={saveManual}>Save plan</Primary></div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: "flex", gap: 7, marginTop: 18 }}>
         <SmallChip T={T} active={mode === "strength"} onClick={() => switchMode("strength")}>STRENGTH</SmallChip>
         <SmallChip T={T} active={mode === "endurance"} onClick={() => switchMode("endurance")}>ENDURANCE</SmallChip>
       </div>
@@ -994,48 +1143,12 @@ function StrengthView({ T, plans, addPlan, addPlans, deletePlan }) {
           onSave={saveProgram} onDiscard={() => setDraft(null)} />
       )}
 
-      <div style={{ borderTop: `1px solid ${T.rule}`, paddingTop: 14 }}>
-        <button onClick={() => setManualOpen((o) => !o)} style={{
-          display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
-          background: "transparent", border: "none", padding: 0, color: T.fg
-        }}>
-          <span style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase" }}>Build your own</span>
-          <span style={{ fontSize: 18, color: T.muted, transform: manualOpen ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
-        </button>
-        {manualOpen && (
-          <div style={{ marginTop: 12 }}>
-            <Input T={T} placeholder="Exercise" value={mName} onChange={(e) => setMName(e.target.value)} />
-            <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
-              <div style={{ flex: 1 }}><Input T={T} placeholder="Sets" value={mSets} onChange={(e) => setMSets(e.target.value)} /></div>
-              <div style={{ flex: 2 }}><Input T={T} placeholder="Reps" value={mReps} onChange={(e) => setMReps(e.target.value)} /></div>
-            </div>
-            <div style={{ display: "flex", marginTop: 7 }}><Ghost T={T} onClick={addManual}><Icon name="plus" size={14} /> Add exercise</Ghost></div>
-            {manual.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                {manual.map((ex, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 15, color: T.fg }}>{ex.name}</div>
-                      <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{ex.sets} × {ex.reps}</div>
-                    </div>
-                    <button onClick={() => setManual((l) => l.filter((_, idx) => idx !== i))}
-                      style={{ width: 34, height: 34, border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, borderRadius: 0 }}>×</button>
-                  </div>
-                ))}
-                <div style={{ marginTop: 12 }}><Input T={T} placeholder="Plan name" value={programName} onChange={(e) => setProgramName(e.target.value)} /></div>
-                <div style={{ marginTop: 10 }}><Primary T={T} onClick={saveManual}>Save plan</Primary></div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
       <div style={{ marginTop: 22 }}>
         <Label T={T}>Saved plans</Label>
         <div style={{ marginTop: 8 }}>
           {plans.length === 0
             ? <Empty T={T} title="No plans yet" body="Generate one above or build your own." />
-            : plans.slice().sort((a, b) => b.createdAt - a.createdAt).map((p) => <PlanRow key={p.id} T={T} plan={p} onDelete={deletePlan} />)}
+            : plans.slice().sort((a, b) => b.createdAt - a.createdAt).map((p) => <PlanRow key={p.id} T={T} plan={p} onDelete={deletePlan} onRename={renamePlan} />)}
         </div>
       </div>
     </div>
@@ -1078,7 +1191,7 @@ function Sparkline({ T, points, width = 56, height = 22 }) {
 }
 
 /* ---------- personal records ---------- */
-function PRForm({ T, onSave, onCancel }) {
+function PRForm({ T, onSave, onCancel, exerciseNames }) {
   const [exercise, setExercise] = useState("");
   const [weight, setWeight] = useState("");
   const [date, setDate] = useState(todayISO());
@@ -1090,7 +1203,7 @@ function PRForm({ T, onSave, onCancel }) {
   return (
     <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 14, marginTop: 12 }}>
       <Label T={T}>Exercise</Label>
-      <div style={{ marginTop: 8 }}><Input T={T} placeholder="e.g. Deadlift" value={exercise} onChange={(e) => setExercise(e.target.value)} /></div>
+      <div style={{ marginTop: 8 }}><ExerciseNameInput T={T} placeholder="e.g. Deadlift" value={exercise} onChange={setExercise} knownNames={exerciseNames} /></div>
       <div style={{ marginTop: 12 }}><Label T={T}>Weight (kg)</Label>
         <div style={{ marginTop: 8 }}><Input T={T} type="number" step="0.5" placeholder="0" value={weight} onChange={(e) => setWeight(e.target.value)} /></div></div>
       <div style={{ marginTop: 12 }}><Label T={T}>Date</Label>
@@ -1138,7 +1251,7 @@ function PRGroupCard({ T, exercise, entries, deletePR }) {
   );
 }
 
-function PRsSection({ T, prs, addPR, deletePR }) {
+function PRsSection({ T, prs, addPR, deletePR, exerciseNames }) {
   const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const grouped = useMemo(() => {
@@ -1162,7 +1275,7 @@ function PRsSection({ T, prs, addPR, deletePR }) {
             ? <Empty T={T} title="No PRs yet" body="Log your current best lifts." />
             : grouped.map(([exercise, entries]) => <PRGroupCard key={exercise} T={T} exercise={exercise} entries={entries} deletePR={deletePR} />)}
           {showForm
-            ? <PRForm T={T} onCancel={() => setShowForm(false)} onSave={(p) => { addPR(p); setShowForm(false); }} />
+            ? <PRForm T={T} exerciseNames={exerciseNames} onCancel={() => setShowForm(false)} onSave={(p) => { addPR(p); setShowForm(false); }} />
             : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> Add PR</Primary></div>}
         </div>
       )}
@@ -1559,7 +1672,7 @@ function GoalsSection({ T, goals, sessions, addGoal, deleteGoal, toggleGoalDone 
 }
 
 /* ---------- stats ---------- */
-function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport }) {
+function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport, exerciseNames }) {
   const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({
     ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
   })), [sessions]);
@@ -1636,7 +1749,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <PRsSection T={T} prs={prs} addPR={addPR} deletePR={deletePR} />
+        <PRsSection T={T} prs={prs} addPR={addPR} deletePR={deletePR} exerciseNames={exerciseNames} />
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -1709,6 +1822,7 @@ function App() {
   const [bodyweight, setBodyweight] = useState([]);
   const [goals, setGoals] = useState([]);
   const T = THEMES[theme] || THEMES.light;
+  const exerciseNames = useMemo(() => collectKnownExerciseNames(sessions, plans), [sessions, plans]);
 
   useEffect(() => {
     let on = true;
@@ -1768,11 +1882,18 @@ function App() {
     persist("sessions", sessions.filter((s) => s.id !== id), setSessions);
     persist("events", events.filter((e) => e.sourceSessionId !== id), setEvents);
   };
+  const updateSession = (s) => {
+    persist("sessions", sessions.map((old) => (old.id === s.id ? s : old)), setSessions);
+    persist("events", events.map((e) => (e.sourceSessionId === s.id
+      ? { ...e, date: s.date, title: getDiscipline(s.discipline).label }
+      : e)), setEvents);
+  };
   const addEvent = (e) => persist("events", [e, ...events], setEvents);
   const deleteEvent = (id) => persist("events", events.filter((e) => e.id !== id), setEvents);
   const addPlan = (p) => persist("plans", [p, ...plans], setPlans);
   const addPlans = (ps) => persist("plans", [...ps, ...plans], setPlans);
   const deletePlan = (id) => persist("plans", plans.filter((p) => p.id !== id), setPlans);
+  const renamePlan = (id, name) => persist("plans", plans.map((p) => (p.id === id ? { ...p, name } : p)), setPlans);
   const addPR = (p) => persist("prs", [p, ...prs], setPrs);
   const deletePR = (id) => persist("prs", prs.filter((p) => p.id !== id), setPrs);
   const addFight = (f) => persist("fights", [f, ...fights], setFights);
@@ -1814,10 +1935,10 @@ function App() {
             </div>
           ) : (
             <div style={{ marginTop: tab === "log" ? 0 : 10 }}>
-              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} deleteSession={deleteSession} plans={plans} />}
+              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} updateSession={updateSession} deleteSession={deleteSession} plans={plans} exerciseNames={exerciseNames} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
-              {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} addPlans={addPlans} deletePlan={deletePlan} />}
-              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} bodyweight={bodyweight} addBodyweight={addBodyweight} deleteBodyweight={deleteBodyweight} goals={goals} addGoal={addGoal} deleteGoal={deleteGoal} toggleGoalDone={toggleGoalDone} onImport={importAll} />}
+              {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} addPlans={addPlans} deletePlan={deletePlan} renamePlan={renamePlan} exerciseNames={exerciseNames} />}
+              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} bodyweight={bodyweight} addBodyweight={addBodyweight} deleteBodyweight={deleteBodyweight} goals={goals} addGoal={addGoal} deleteGoal={deleteGoal} toggleGoalDone={toggleGoalDone} onImport={importAll} exerciseNames={exerciseNames} />}
             </div>
           )}
         </main>
