@@ -103,10 +103,12 @@ function Icon({ name, size = 18 }) {
 const DISCIPLINES = [
   { key: "mma", label: "MMA", strong: true },
   { key: "striking", label: "Striking", strong: true },
+  { key: "boxing", label: "Boxing", strong: true },
   { key: "bjj", label: "BJJ", strong: true },
   { key: "wrestling", label: "Wrestling", strong: true },
   { key: "strength", label: "Strength", strong: false },
-  { key: "conditioning", label: "Conditioning", strong: false },
+  { key: "conditioning", label: "Endurance", strong: false },
+  { key: "mobility", label: "Mobility", strong: false },
   { key: "other", label: "Other", strong: false }
 ];
 const getDiscipline = (k) => DISCIPLINES.find((d) => d.key === k) || DISCIPLINES[DISCIPLINES.length - 1];
@@ -372,25 +374,6 @@ function Empty({ T, title, body }) {
     </div>
   );
 }
-function RpeRow({ T, value, onChange }) {
-  return (
-    <div style={{ display: "flex", gap: 7 }}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button key={n} onClick={() => onChange(n)} className="fl-mono" style={{
-          flex: 1, border: `1px solid ${T.fg}`, background: n <= value ? T.fg : "transparent",
-          color: n <= value ? T.bg : T.muted, fontSize: 17, fontWeight: 600, padding: "15px 0", borderRadius: 0
-        }}>{n}</button>
-      ))}
-    </div>
-  );
-}
-function RpeBars({ T, value }) {
-  return (
-    <div style={{ display: "flex", gap: 3 }}>
-      {[1, 2, 3, 4, 5].map((n) => <span key={n} style={{ width: 18, height: 4, background: n <= value ? T.fg : T.rule }} />)}
-    </div>
-  );
-}
 
 /* ---------- strength exercise log ---------- */
 function SetInput({ T, value, onChange, placeholder }) {
@@ -488,24 +471,48 @@ function ExerciseLogEditor({ T, log, setLog, plans, sessions }) {
   );
 }
 
+/* ---------- endurance log ---------- */
+const ENDURANCE_TYPES = ["Intervals", "Steady Run", "Tempo Run", "Long Run", "Assault Bike", "Rower", "Bike", "Swim", "Other"];
+function EnduranceLogEditor({ T, value, onChange }) {
+  return (
+    <div>
+      <Label T={T}>Type</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 11 }}>
+        {ENDURANCE_TYPES.map((t) => <Chip key={t} T={T} active={value.type === t} onClick={() => onChange({ ...value, type: t })}>{t}</Chip>)}
+      </div>
+      <div style={{ display: "flex", gap: 7, marginTop: 18 }}>
+        <div style={{ flex: 1 }}><Label T={T}>Distance (m)</Label>
+          <div style={{ marginTop: 8 }}><Input T={T} type="number" placeholder="0" value={value.distanceM} onChange={(e) => onChange({ ...value, distanceM: e.target.value })} /></div></div>
+      </div>
+      <div style={{ marginTop: 18 }}><Label T={T}>Notes</Label>
+        <div style={{ marginTop: 8 }}><Area T={T} rows={5} placeholder="e.g. 8×400m @ 90s pace, 2min rest between reps" value={value.notes} onChange={(e) => onChange({ ...value, notes: e.target.value })} /></div></div>
+    </div>
+  );
+}
+
 /* ---------- session form ---------- */
 function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
   const [discipline, setDiscipline] = useState(last ? last.discipline : "mma");
   const [date, setDate] = useState(todayISO());
   const [duration, setDuration] = useState(last && last.duration ? last.duration : 90);
-  const [intensity, setIntensity] = useState(4);
   const [notes, setNotes] = useState("");
   const [didWell, setDidWell] = useState("");
   const [toImprove, setToImprove] = useState("");
   const [exerciseLog, setExerciseLog] = useState([]);
+  const [endurance, setEndurance] = useState({ type: "", distanceM: "", notes: "" });
   const isStrength = discipline === "strength";
+  const isEndurance = discipline === "conditioning";
   const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
   const submit = () => onSave({
-    id: uid(), discipline, date, duration: isStrength ? 0 : Number(duration) || 0, intensity: isStrength ? null : intensity,
-    notes: notes.trim(), didWell: didWell.trim(), toImprove: toImprove.trim(),
-    exerciseLog: isStrength ? exerciseLog : [], createdAt: Date.now()
+    id: uid(), discipline, date, duration: Number(duration) || 0,
+    notes: isEndurance ? endurance.notes.trim() : notes.trim(),
+    didWell: didWell.trim(), toImprove: toImprove.trim(),
+    exerciseLog: isStrength ? exerciseLog : [],
+    enduranceType: isEndurance ? endurance.type : "",
+    enduranceDistance: isEndurance && endurance.distanceM ? Number(endurance.distanceM) : null,
+    createdAt: Date.now()
   });
-  const repeat = () => { if (!last) return; setDiscipline(last.discipline); if (last.duration) setDuration(last.duration); setIntensity(last.intensity || 4); };
+  const repeat = () => { if (!last) return; setDiscipline(last.discipline); if (last.duration) setDuration(last.duration); };
   return (
     <div style={{ borderTop: `2px solid ${T.fg}`, marginTop: 4 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 0 0" }}>
@@ -534,40 +541,36 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
         </div>
       </div>
 
-      {!isStrength && (
-        <div style={{ marginTop: 18 }}><Label T={T}>Duration</Label>
-          <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
-            <button onClick={() => step(-15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>–</button>
-            <div style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0" }}>
-              <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
-              <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
-            </div>
-            <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
+      <div style={{ marginTop: 18 }}><Label T={T}>Duration</Label>
+        <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
+          <button onClick={() => step(-15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>–</button>
+          <div style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0" }}>
+            <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
+            <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
           </div>
-          <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
-            {[45, 60, 90, 120].map((d) => <SmallChip key={d} T={T} active={Number(duration) === d} onClick={() => setDuration(d)}>{d} MIN</SmallChip>)}
-          </div>
+          <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
         </div>
-      )}
-
-      {!isStrength && (
-        <div style={{ marginTop: 18 }}><Label T={T}>Intensity · RPE</Label>
-          <div style={{ marginTop: 11 }}><RpeRow T={T} value={intensity} onChange={setIntensity} /></div>
+        <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+          {[45, 60, 90, 120].map((d) => <SmallChip key={d} T={T} active={Number(duration) === d} onClick={() => setDuration(d)}>{d} MIN</SmallChip>)}
         </div>
-      )}
+      </div>
 
       {isStrength ? (
         <div style={{ marginTop: 18 }}>
           <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} sessions={sessions || []} />
         </div>
+      ) : isEndurance ? (
+        <div style={{ marginTop: 18 }}>
+          <EnduranceLogEditor T={T} value={endurance} onChange={setEndurance} />
+        </div>
       ) : (
         <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
           <div><Label T={T}>What you drilled</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="Underhook chains, snap downs, 5 live goes" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="Underhook chains, snap downs, 5 live goes" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
           <div><Label T={T}>Went well</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
           <div><Label T={T}>Fix next time</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={2} placeholder="What needs work?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></div></div>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="What needs work?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></div></div>
         </div>
       )}
 
@@ -597,12 +600,16 @@ function SessionRow({ T, session, onDelete }) {
               {session.exerciseLog.map((e) => e.name).join(", ")}
             </div>
           )}
-          {!open && !(session.exerciseLog && session.exerciseLog.length > 0) && (session.notes || session.didWell) && (
+          {!open && !(session.exerciseLog && session.exerciseLog.length > 0) && session.enduranceType && (
+            <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {session.enduranceType}{session.enduranceDistance != null ? ` · ${session.enduranceDistance}m` : ""}
+            </div>
+          )}
+          {!open && !(session.exerciseLog && session.exerciseLog.length > 0) && !session.enduranceType && (session.notes || session.didWell) && (
             <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {session.notes || session.didWell}
             </div>
           )}
-          {!!session.intensity && <div style={{ marginTop: 10 }}><RpeBars T={T} value={session.intensity} /></div>}
         </div>
       </button>
       {open && (
@@ -624,7 +631,13 @@ function SessionRow({ T, session, onDelete }) {
               ))}
             </div>
           )}
-          {[["What you drilled", session.notes], ["Went well", session.didWell], ["Fix next time", session.toImprove]]
+          {session.enduranceType && (
+            <div>
+              <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{session.enduranceType}</div>
+              {session.enduranceDistance != null && <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{session.enduranceDistance}m</div>}
+            </div>
+          )}
+          {[[session.enduranceType ? "Notes" : "What you drilled", session.notes], ["Went well", session.didWell], ["Fix next time", session.toImprove]]
             .filter(([, v]) => v).map(([l, v]) => (
               <div key={l}><Label T={T}>{l}</Label>
                 <div style={{ fontSize: 14, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{v}</div></div>
