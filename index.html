@@ -502,6 +502,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
   const [endurance, setEndurance] = useState({ type: "", distanceM: "", notes: "" });
   const isStrength = discipline === "strength";
   const isEndurance = discipline === "conditioning";
+  const isMobility = discipline === "mobility";
   const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
   const submit = () => onSave({
     id: uid(), discipline, date, duration: Number(duration) || 0,
@@ -565,8 +566,8 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions }) {
         </div>
       ) : (
         <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div><Label T={T}>What you drilled</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="Underhook chains, snap downs, 5 live goes" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
+          <div><Label T={T}>{isMobility ? "What you worked on" : "What you drilled"}</Label>
+            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder={isMobility ? "Hips, ankles, thoracic spine, hamstrings" : "Underhook chains, snap downs, 5 live goes"} value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
           <div><Label T={T}>Went well</Label>
             <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
           <div><Label T={T}>Fix next time</Label>
@@ -637,7 +638,7 @@ function SessionRow({ T, session, onDelete }) {
               {session.enduranceDistance != null && <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{session.enduranceDistance}m</div>}
             </div>
           )}
-          {[[session.enduranceType ? "Notes" : "What you drilled", session.notes], ["Went well", session.didWell], ["Fix next time", session.toImprove]]
+          {[[session.enduranceType ? "Notes" : session.discipline === "mobility" ? "What you worked on" : "What you drilled", session.notes], ["Went well", session.didWell], ["Fix next time", session.toImprove]]
             .filter(([, v]) => v).map(([l, v]) => (
               <div key={l}><Label T={T}>{l}</Label>
                 <div style={{ fontSize: 14, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{v}</div></div>
