@@ -182,10 +182,22 @@ freely. All free-text session fields should go through `NotesField`, not a bare 
   per exercise (`buildStrengthComparison`) and shows a single aggregate % delta across
   whatever exercises actually had prior history — exercises logged for the first time
   simply don't contribute to the comparison rather than being treated as a 0→X spike.
-- **Weekly Recap** (`WeeklyRecapSection`, in Stats) and the **Training Volume** chart
-  (`VolumeChartSection`, range-selectable 1W/1M/3M/1Y via `VOLUME_RANGES` /
-  `buildVolumeBuckets`) both reuse these same volume/intensity primitives rather than
-  recomputing their own — keep it that way if you touch the definition of "volume."
+- **Weekly Recap** (`WeeklyRecapSection`, in Stats) reuses these same volume/intensity
+  primitives rather than recomputing its own — keep it that way if you touch the
+  definition of "volume."
+- **"Training volume" is ambiguous — pin down which meaning before touching this area.**
+  A first pass built a separate Strength-only kg-load-over-time chart under that name;
+  that was wrong. What the user actually meant by "Trainingsvolumen über Zeit" was
+  **total training minutes across all disciplines**, viewed as a chart with a range
+  toggle. That correction is now the main chart at the top of Stats: `buildMinutesBuckets`
+  (bucketed weekly/monthly/yearly via `MINUTES_RANGES`) drives it, and clicking the chart
+  (or the small toggle button) switches between the original bar view and a `LineChart`
+  line view — both read from the same `buckets` so they never disagree. The kg-based
+  load metric (`computeSessionVolume` et al.) is still real and still used, but only
+  where it always correctly belonged: the post-save `SessionSummaryModal`'s "how much
+  did I lift, and is it more than last time" comparison. Don't reintroduce a separate
+  kg-over-time chart under the "Training Volume" name without checking first — it was
+  explicitly rejected once already.
 
 ## If you're picking this up in a new conversation
 

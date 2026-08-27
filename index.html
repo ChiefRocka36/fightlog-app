@@ -464,43 +464,42 @@ function computeWeekStats(sessions, startISO, endISO) {
   inRange.forEach((s) => { byDiscipline[s.discipline] = (byDiscipline[s.discipline] || 0) + 1; });
   return { count: inRange.length, minutes, avgIntensity, volume, byDiscipline };
 }
-const VOLUME_RANGES = [
-  { key: "1w", label: "1W", days: 7, bucket: "day" },
-  { key: "1m", label: "1M", days: 30, bucket: "day" },
-  { key: "3m", label: "3M", days: 90, bucket: "week" },
-  { key: "1y", label: "1Y", days: 365, bucket: "month" }
+/* Total training minutes (all disciplines) bucketed for the main Stats chart, which
+   can be viewed as weekly bars (last 8 weeks), monthly bars (last 12 months), or
+   yearly bars (last 5 years) — see MINUTES_RANGES / StatsView. */
+const MINUTES_RANGES = [
+  { key: "week", label: "WEEK" },
+  { key: "month", label: "MONTH" },
+  { key: "year", label: "YEAR" }
 ];
-function buildVolumeBuckets(sessions, range) {
-  const end = new Date(); end.setHours(0, 0, 0, 0);
-  const start = new Date(end); start.setDate(end.getDate() - range.days + 1);
-  const strengthSessions = sessions.filter((s) => s.discipline === "strength");
-  if (range.bucket === "day") {
+function buildMinutesBuckets(sessions, range) {
+  if (range === "week") {
+    return buildLastNWeeks(8).map((w) => ({
+      key: w.startISO, label: w.label,
+      minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
+    }));
+  }
+  if (range === "month") {
+    const now = new Date();
     const out = [];
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const iso = toISO(d);
-      const vol = strengthSessions.filter((s) => s.date === iso).reduce((sum, s) => sum + computeSessionVolume(s), 0);
-      out.push({ key: iso, y: Math.round(vol), label: new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }) });
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      out.push({
+        key: ym, label: MONTHS[d.getMonth()].slice(0, 3).toUpperCase(),
+        minutes: sessions.filter((s) => s.date.startsWith(ym)).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
+      });
     }
     return out;
   }
-  if (range.bucket === "week") {
-    const out = [];
-    for (let s = startOfWeekDate(start); s <= end; s.setDate(s.getDate() + 7)) {
-      const wStart = new Date(s), wEnd = new Date(s); wEnd.setDate(wStart.getDate() + 6);
-      const startISO = toISO(wStart), endISO = toISO(wEnd);
-      const vol = strengthSessions.filter((sess) => sess.date >= startISO && sess.date <= endISO).reduce((sum, sess) => sum + computeSessionVolume(sess), 0);
-      out.push({ key: startISO, y: Math.round(vol), label: wStart.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }) });
-    }
-    return out;
-  }
+  const nowY = new Date().getFullYear();
   const out = [];
-  let y = start.getFullYear(), m = start.getMonth();
-  const endY = end.getFullYear(), endM = end.getMonth();
-  while (y < endY || (y === endY && m <= endM)) {
-    const ym = `${y}-${String(m + 1).padStart(2, "0")}`;
-    const vol = strengthSessions.filter((s) => s.date.startsWith(ym)).reduce((sum, s) => sum + computeSessionVolume(s), 0);
-    out.push({ key: ym, y: Math.round(vol), label: MONTHS[m].slice(0, 3).toUpperCase() });
-    m++; if (m > 11) { m = 0; y++; }
+  for (let i = 4; i >= 0; i--) {
+    const y = nowY - i;
+    out.push({
+      key: String(y), label: String(y),
+      minutes: sessions.filter((s) => s.date.startsWith(String(y))).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
+    });
   }
   return out;
 }
@@ -2114,63 +2113,15 @@ function WeeklyRecapSection({ T, sessions }) {
   );
 }
 
-function VolumeChartSection({ T, sessions }) {
-  const [open, setOpen] = useState(false);
-  const [range, setRange] = useState("1m");
-  const rangeObj = VOLUME_RANGES.find((r) => r.key === range);
-  const buckets = useMemo(() => buildVolumeBuckets(sessions, rangeObj), [sessions, range]);
-  const max = Math.max(...buckets.map((b) => b.y), 1);
-  const total = buckets.reduce((s, b) => s + b.y, 0);
-  const dense = buckets.length > 20;
-  return (
-    <div style={{ border: `1px solid ${T.rule}` }}>
-      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
-        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Training Volume</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{total.toLocaleString()}kg</span>
-          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
-        </div>
-      </button>
-      {open && (
-        <div style={{ padding: "0 14px 16px" }}>
-          {total === 0 ? (
-            <div style={{ fontSize: 13, color: T.muted }}>No Strength sessions with logged weights in this range yet.</div>
-          ) : (
-            <>
-              <div style={{ display: "flex", gap: 6 }}>
-                {VOLUME_RANGES.map((r) => <SmallChip key={r.key} T={T} active={range === r.key} onClick={() => setRange(r.key)}>{r.label}</SmallChip>)}
-              </div>
-              <div className="fl-scroll-x" style={{ marginTop: 16 }}>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: dense ? 2 : 8, height: 120, minWidth: dense ? buckets.length * 6 : "auto" }}>
-                  {buckets.map((b, i) => (
-                    <div key={b.key} title={`${b.label}: ${b.y}kg`} style={{
-                      flex: dense ? "none" : 1, width: dense ? 4 : "auto",
-                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end"
-                    }}>
-                      <div style={{ width: "100%", height: Math.max(2, Math.round((b.y / max) * 100)), background: b.y === max && max > 0 ? T.fg : T.muted }} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="fl-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 8.5, color: T.muted, marginTop: 8 }}>
-                <span>{buckets[0] && buckets[0].label}</span>
-                <span>{buckets[buckets.length - 1] && buckets[buckets.length - 1].label}</span>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport, exerciseNames }) {
-  const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({
-    ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
-  })), [sessions]);
-  const max = Math.max(...weeks.map((w) => w.minutes), 1);
-  const total = weeks.reduce((s, w) => s + w.minutes, 0);
-  const avg = Math.round(total / 8);
+  const [minutesRange, setMinutesRange] = useState("week");
+  const [chartType, setChartType] = useState("bar");
+  const buckets = useMemo(() => buildMinutesBuckets(sessions, minutesRange), [sessions, minutesRange]);
+  const max = Math.max(...buckets.map((b) => b.minutes), 1);
+  const total = buckets.reduce((s, b) => s + b.minutes, 0);
+  const avg = Math.round(total / buckets.length);
+  const avgUnit = minutesRange === "week" ? "WK" : minutesRange === "month" ? "MO" : "YR";
   const rows = DISCIPLINES.map((d) => ({ ...d, count: sessions.filter((s) => s.discipline === d.key).length }))
     .filter((d) => d.count > 0).sort((a, b) => b.count - a.count);
 
@@ -2193,22 +2144,35 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <div className="fl-mono" style={{ fontSize: 40, lineHeight: 0.85, fontWeight: 600, color: T.fg }}>{total}</div>
-        <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: T.muted }}>MINUTES · Ø {avg} / WK</div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <div className="fl-mono" style={{ fontSize: 40, lineHeight: 0.85, fontWeight: 600, color: T.fg }}>{total}</div>
+          <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: T.muted }}>MINUTES · Ø {avg} / {avgUnit}</div>
+        </div>
+        <button onClick={() => setChartType((t) => (t === "bar" ? "line" : "bar"))} className="fl-mono" style={{
+          border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, padding: "6px 9px", fontSize: 9, letterSpacing: "0.08em", borderRadius: 0
+        }}>{chartType === "bar" ? "📈 LINE" : "▥ BARS"}</button>
       </div>
 
-      <div style={{ paddingBottom: 18, marginTop: 18, borderBottom: `1px solid ${T.rule}` }}>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140 }}>
-          {weeks.map((w, i) => (
-            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
-              <span className="fl-mono" style={{ fontSize: 9, color: T.muted }}>{w.minutes || ""}</span>
-              <div style={{ width: "100%", height: Math.max(3, Math.round((w.minutes / max) * 110)), background: w.minutes === max && max > 0 ? T.fg : T.muted }} />
-            </div>
-          ))}
-        </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
+        {MINUTES_RANGES.map((r) => <SmallChip key={r.key} T={T} active={minutesRange === r.key} onClick={() => setMinutesRange(r.key)}>{r.label}</SmallChip>)}
+      </div>
+
+      <div onClick={() => setChartType((t) => (t === "bar" ? "line" : "bar"))} style={{ paddingBottom: 18, marginTop: 18, borderBottom: `1px solid ${T.rule}`, cursor: "pointer" }}>
+        {chartType === "bar" ? (
+          <div style={{ display: "flex", alignItems: "flex-end", gap: buckets.length > 8 ? 4 : 8, height: 140 }}>
+            {buckets.map((b) => (
+              <div key={b.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 7 }}>
+                <span className="fl-mono" style={{ fontSize: 9, color: T.muted }}>{b.minutes || ""}</span>
+                <div style={{ width: "100%", height: Math.max(3, Math.round((b.minutes / max) * 110)), background: b.minutes === max && max > 0 ? T.fg : T.muted }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <LineChart T={T} points={buckets.map((b) => ({ x: b.key, y: b.minutes }))} height={140} />
+        )}
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          {weeks.map((w, i) => <div key={i} className="fl-mono" style={{ flex: 1, textAlign: "center", fontSize: 8, color: T.muted }}>{w.label}</div>)}
+          {buckets.map((b) => <div key={b.key} className="fl-mono" style={{ flex: 1, textAlign: "center", fontSize: 8, color: T.muted }}>{b.label}</div>)}
         </div>
       </div>
 
@@ -2246,10 +2210,6 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
 
       <div style={{ marginTop: 14 }}>
         <PRsSection T={T} prs={prs} addPR={addPR} deletePR={deletePR} exerciseNames={exerciseNames} />
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <VolumeChartSection T={T} sessions={sessions} />
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -2308,7 +2268,7 @@ const TABS = [
   { key: "stats", label: "STATS", icon: "chart" }
 ];
 const TITLES = { log: "Fight Log", calendar: "Calendar", strength: "Strength & cond.", stats: "Statistics" };
-const SUBTITLES = { log: "TRAINING RECORD", calendar: "SCHEDULE", strength: "PLAN GENERATOR", stats: "LAST 8 WEEKS" };
+const SUBTITLES = { log: "TRAINING RECORD", calendar: "SCHEDULE", strength: "PLAN GENERATOR", stats: "TRAINING STATS" };
 
 function App() {
   const [tab, setTab] = useState("log");
