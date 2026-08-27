@@ -127,6 +127,66 @@ freely, wire it through `ExerciseNameInput` + `exerciseNames` rather than a plai
   would bubble up and toggle the row open/closed. Instead the row header is a plain
   `<div>` with separate rename (pencil) and expand (chevron) buttons.
 
+## Media attachments (photos/videos) live in IndexedDB, not localStorage
+
+`window.mediaStore` (defined in the plain `<script>` block, before the Babel one) is a
+tiny IndexedDB wrapper (`put`/`get`/`delete`, one object store called `files`).
+Sessions and PR entries only ever store an array of media **ids** (`mediaIds`) in
+`localStorage` via the normal `persist` path — the actual blobs never go through
+`window.storage`, because a few photos would blow past `localStorage`'s ~5–10MB quota
+almost immediately. `useMediaItems` (a hook) resolves ids to object URLs on demand and
+revokes them on cleanup; `MediaField` is the editable picker/gallery (used in
+`SessionForm` and `PRForm`), `MediaThumbs` is the read-only gallery with a fullscreen
+`MediaViewer` (used in `SessionRow` and `PRGroupCard`). Deleting a session or PR entry
+must also delete its media blobs (see `deleteSession` / `deletePR` in `App`) or
+IndexedDB accumulates orphaned files forever — if you add another place media gets
+attached, remember the matching cleanup on delete.
+
+## Intensity (not RPE)
+
+RPE was removed once (see above) and later reintroduced under a different name and
+scope at the user's explicit request: it's called **Intensity** everywhere (UI copy,
+field name — `session.intensity`), 1–10, and `supportsIntensity(discipline)` excludes
+it for **Strength** (measured by load instead) and **Mobility** (no real exertion
+axis). Don't call it "RPE" in code or copy, and don't add it back for those two
+disciplines without asking first — both exclusions were explicit requirements, not
+oversights.
+
+## Rest timer
+
+`RestTimer` in `SessionForm`'s Strength branch is a plain count-up stopwatch (Start/
+Stop/Reset), not a countdown — it's there so the lifter can glance at how long they've
+rested between sets, not to enforce a preset rest interval. Keep it simple; a countdown/
+preset-interval version was not what was asked for.
+
+## Voice dictation
+
+`DictateButton` wraps the Web Speech API (`SpeechRecognition` /
+`webkitSpeechRecognition`). It renders `null` when neither exists on `window` (Firefox
+desktop and most non-Chromium browsers), so treat it as progressive enhancement, not a
+guaranteed control — never assume it's present when reasoning about the notes UI.
+`NotesField` bundles a `Label` + `DictateButton` + `Area` together and appends dictated
+text to whatever's already typed (not a replace) so voice and typing can be mixed
+freely. All free-text session fields should go through `NotesField`, not a bare `Area`.
+
+## Post-save summary, weekly recap, and training volume
+
+- **`computeSessionVolume`/`computeExerciseVolume`** define "volume" as Σ(weight × reps)
+  across all non-hold sets in a session — hold exercises (planks, etc.) don't have a
+  meaningful weight×reps figure and are excluded. Bodyweight exercises only count their
+  *added* weight, since true bodyweight isn't tracked as a number anywhere in the app;
+  this is a known, accepted undercount, not a bug.
+- **`SessionSummaryModal`** appears once, right after saving a *new* session (not after
+  editing one — a correction isn't "just finished a workout"). For Strength sessions it
+  compares this session's volume against `findExerciseHistory`-matched prior sessions
+  per exercise (`buildStrengthComparison`) and shows a single aggregate % delta across
+  whatever exercises actually had prior history — exercises logged for the first time
+  simply don't contribute to the comparison rather than being treated as a 0→X spike.
+- **Weekly Recap** (`WeeklyRecapSection`, in Stats) and the **Training Volume** chart
+  (`VolumeChartSection`, range-selectable 1W/1M/3M/1Y via `VOLUME_RANGES` /
+  `buildVolumeBuckets`) both reuse these same volume/intensity primitives rather than
+  recomputing their own — keep it that way if you touch the definition of "volume."
+
 ## If you're picking this up in a new conversation
 
 The conversation history (design rationale, rejected alternatives, exact wording of

@@ -61,6 +61,55 @@
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", function () { navigator.serviceWorker.register("./sw.js").catch(function () {}); });
   }
+
+  /* IndexedDB-backed store for session/PR photo & video attachments — kept out of
+     localStorage since media blobs would blow past its quota almost immediately. */
+  window.mediaStore = (function () {
+    var dbPromise = null;
+    function open() {
+      if (dbPromise) return dbPromise;
+      dbPromise = new Promise(function (resolve, reject) {
+        if (!window.indexedDB) { reject(new Error("no indexedDB")); return; }
+        var req = indexedDB.open("fl-media", 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore("files"); };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+      return dbPromise;
+    }
+    return {
+      put: function (id, blob) {
+        return open().then(function (db) {
+          return new Promise(function (resolve, reject) {
+            var tx = db.transaction("files", "readwrite");
+            tx.objectStore("files").put(blob, id);
+            tx.oncomplete = function () { resolve(id); };
+            tx.onerror = function () { reject(tx.error); };
+          });
+        });
+      },
+      get: function (id) {
+        return open().then(function (db) {
+          return new Promise(function (resolve, reject) {
+            var tx = db.transaction("files", "readonly");
+            var r = tx.objectStore("files").get(id);
+            r.onsuccess = function () { resolve(r.result || null); };
+            r.onerror = function () { reject(r.error); };
+          });
+        });
+      },
+      delete: function (id) {
+        return open().then(function (db) {
+          return new Promise(function (resolve, reject) {
+            var tx = db.transaction("files", "readwrite");
+            tx.objectStore("files").delete(id);
+            tx.oncomplete = function () { resolve(); };
+            tx.onerror = function () { reject(tx.error); };
+          });
+        });
+      }
+    };
+  })();
 </script>
 
 <script type="text/babel" data-presets="react">
@@ -378,6 +427,84 @@ function collectKnownExerciseNames(sessions, plans) {
   return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
 }
 
+/* ---------- intensity ---------- */
+const INTENSITY_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+/* Disciplines where "how hard did it feel" is meaningful. Strength is measured by load
+   moved and Mobility has no exertion axis, so both are excluded on purpose. */
+const supportsIntensity = (discipline) => discipline !== "strength" && discipline !== "mobility";
+
+/* ---------- training volume ---------- */
+function computeExerciseVolume(sets) {
+  return (sets || []).reduce((sum, s) => sum + (parseFloat(s.weight) || 0) * (parseFloat(s.reps) || 0), 0);
+}
+function computeSessionVolume(session) {
+  if (!session || !session.exerciseLog) return 0;
+  return session.exerciseLog.reduce((sum, ex) => {
+    if (inferExerciseType(ex.name) === "hold") return sum;
+    return sum + computeExerciseVolume(ex.sets);
+  }, 0);
+}
+function buildStrengthComparison(session, priorSessions) {
+  let curTotal = 0, prevTotal = 0, matchedCount = 0;
+  (session.exerciseLog || []).forEach((ex) => {
+    if (inferExerciseType(ex.name) === "hold") return;
+    curTotal += computeExerciseVolume(ex.sets);
+    const hist = findExerciseHistory(priorSessions, ex.name);
+    if (hist) { prevTotal += computeExerciseVolume(hist.sets); matchedCount++; }
+  });
+  return { curTotal, prevTotal, matchedCount, delta: prevTotal > 0 ? ((curTotal - prevTotal) / prevTotal) * 100 : null };
+}
+function computeWeekStats(sessions, startISO, endISO) {
+  const inRange = sessions.filter((s) => s.date >= startISO && s.date <= endISO);
+  const minutes = inRange.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
+  const withIntensity = inRange.filter((s) => s.intensity != null);
+  const avgIntensity = withIntensity.length ? withIntensity.reduce((sum, s) => sum + s.intensity, 0) / withIntensity.length : null;
+  const volume = inRange.filter((s) => s.discipline === "strength").reduce((sum, s) => sum + computeSessionVolume(s), 0);
+  const byDiscipline = {};
+  inRange.forEach((s) => { byDiscipline[s.discipline] = (byDiscipline[s.discipline] || 0) + 1; });
+  return { count: inRange.length, minutes, avgIntensity, volume, byDiscipline };
+}
+const VOLUME_RANGES = [
+  { key: "1w", label: "1W", days: 7, bucket: "day" },
+  { key: "1m", label: "1M", days: 30, bucket: "day" },
+  { key: "3m", label: "3M", days: 90, bucket: "week" },
+  { key: "1y", label: "1Y", days: 365, bucket: "month" }
+];
+function buildVolumeBuckets(sessions, range) {
+  const end = new Date(); end.setHours(0, 0, 0, 0);
+  const start = new Date(end); start.setDate(end.getDate() - range.days + 1);
+  const strengthSessions = sessions.filter((s) => s.discipline === "strength");
+  if (range.bucket === "day") {
+    const out = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const iso = toISO(d);
+      const vol = strengthSessions.filter((s) => s.date === iso).reduce((sum, s) => sum + computeSessionVolume(s), 0);
+      out.push({ key: iso, y: Math.round(vol), label: new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }) });
+    }
+    return out;
+  }
+  if (range.bucket === "week") {
+    const out = [];
+    for (let s = startOfWeekDate(start); s <= end; s.setDate(s.getDate() + 7)) {
+      const wStart = new Date(s), wEnd = new Date(s); wEnd.setDate(wStart.getDate() + 6);
+      const startISO = toISO(wStart), endISO = toISO(wEnd);
+      const vol = strengthSessions.filter((sess) => sess.date >= startISO && sess.date <= endISO).reduce((sum, sess) => sum + computeSessionVolume(sess), 0);
+      out.push({ key: startISO, y: Math.round(vol), label: wStart.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }) });
+    }
+    return out;
+  }
+  const out = [];
+  let y = start.getFullYear(), m = start.getMonth();
+  const endY = end.getFullYear(), endM = end.getMonth();
+  while (y < endY || (y === endY && m <= endM)) {
+    const ym = `${y}-${String(m + 1).padStart(2, "0")}`;
+    const vol = strengthSessions.filter((s) => s.date.startsWith(ym)).reduce((sum, s) => sum + computeSessionVolume(s), 0);
+    out.push({ key: ym, y: Math.round(vol), label: MONTHS[m].slice(0, 3).toUpperCase() });
+    m++; if (m > 11) { m = 0; y++; }
+  }
+  return out;
+}
+
 /* ---------- primitives ---------- */
 function Label({ T, children }) {
   return <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, textTransform: "uppercase" }}>{children}</div>;
@@ -435,6 +562,191 @@ function Empty({ T, title, body }) {
     <div style={{ border: `1px solid ${T.rule}`, padding: "26px 18px" }}>
       <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{title}</div>
       <div style={{ fontSize: 13, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>{body}</div>
+    </div>
+  );
+}
+
+/* ---------- voice dictation ---------- */
+function DictateButton({ T, onResult }) {
+  const [listening, setListening] = useState(false);
+  const recRef = useRef(null);
+  const SR = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
+  useEffect(() => () => { if (recRef.current) { try { recRef.current.stop(); } catch (e) {} } }, []);
+  if (!SR) return null;
+  const toggle = () => {
+    if (listening) { if (recRef.current) recRef.current.stop(); return; }
+    const rec = new SR();
+    rec.lang = navigator.language || "en-US";
+    rec.interimResults = false;
+    rec.continuous = false;
+    rec.onresult = (e) => { const text = Array.from(e.results).map((r) => r[0].transcript).join(" ").trim(); if (text) onResult(text); };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recRef.current = rec;
+    rec.start();
+    setListening(true);
+  };
+  return (
+    <button type="button" onClick={toggle} className="fl-mono" style={{
+      display: "flex", alignItems: "center", gap: 6, border: `1px solid ${listening ? T.accent : T.rule}`,
+      background: "transparent", color: listening ? T.accent : T.muted,
+      padding: "5px 9px", fontSize: 9, letterSpacing: "0.08em", borderRadius: 0
+    }}>{listening ? "● LISTENING…" : "🎙 DICTATE"}</button>
+  );
+}
+function NotesField({ T, label, placeholder, value, onChange, rows }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <Label T={T}>{label}</Label>
+        <DictateButton T={T} onResult={(text) => onChange((value ? value + " " : "") + text)} />
+      </div>
+      <div style={{ marginTop: 8 }}><Area T={T} rows={rows || 4} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} /></div>
+    </div>
+  );
+}
+
+/* ---------- media attachments (photos / videos, stored in IndexedDB) ---------- */
+function useMediaItems(mediaIds) {
+  const [items, setItems] = useState([]);
+  const key = (mediaIds || []).join(",");
+  useEffect(() => {
+    let alive = true;
+    const urls = [];
+    (async () => {
+      const out = [];
+      for (const id of (mediaIds || [])) {
+        try {
+          const blob = await window.mediaStore.get(id);
+          if (blob) { const url = URL.createObjectURL(blob); urls.push(url); out.push({ id, url, type: blob.type || "" }); }
+        } catch (e) {}
+      }
+      if (alive) setItems(out);
+    })();
+    return () => { alive = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
+    // eslint-disable-next-line
+  }, [key]);
+  return items;
+}
+function MediaViewer({ item, onClose }) {
+  if (!item) return null;
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", zIndex: 80,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+    }}>
+      {item.type.startsWith("video")
+        ? <video src={item.url} controls autoPlay style={{ maxWidth: "100%", maxHeight: "100%" }} onClick={(e) => e.stopPropagation()} />
+        : <img src={item.url} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} onClick={(e) => e.stopPropagation()} />}
+    </div>
+  );
+}
+function MediaThumbs({ T, mediaIds, size }) {
+  const items = useMediaItems(mediaIds);
+  const [viewer, setViewer] = useState(null);
+  const s = size || 60;
+  if (!items.length) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {items.map((it) => (
+        <button key={it.id} onClick={() => setViewer(it)} style={{ width: s, height: s, border: `1px solid ${T.rule}`, padding: 0, overflow: "hidden", background: "none" }}>
+          {it.type.startsWith("video")
+            ? <video src={it.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
+            : <img src={it.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+        </button>
+      ))}
+      <MediaViewer item={viewer} onClose={() => setViewer(null)} />
+    </div>
+  );
+}
+function MediaField({ T, mediaIds, onAdd, onRemove }) {
+  const items = useMediaItems(mediaIds);
+  const [viewer, setViewer] = useState(null);
+  const fileRef = useRef(null);
+  const pickFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    for (const file of files) {
+      const id = uid();
+      try { await window.mediaStore.put(id, file); onAdd(id); } catch (e) {}
+    }
+  };
+  return (
+    <div>
+      <Label T={T}>Photos / Videos</Label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 11 }}>
+        {items.map((it) => (
+          <div key={it.id} style={{ position: "relative", width: 72, height: 72, border: `1px solid ${T.rule}`, overflow: "hidden" }}>
+            <button onClick={() => setViewer(it)} style={{ width: "100%", height: "100%", padding: 0, border: "none", background: "none" }}>
+              {it.type.startsWith("video")
+                ? <video src={it.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
+                : <img src={it.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+            </button>
+            <button onClick={() => onRemove(it.id)} style={{
+              position: "absolute", top: 2, right: 2, width: 20, height: 20, background: "rgba(0,0,0,0.6)",
+              color: "#fff", border: "none", fontSize: 12, lineHeight: 1, borderRadius: 0
+            }}>×</button>
+          </div>
+        ))}
+        <button onClick={() => fileRef.current && fileRef.current.click()} style={{
+          width: 72, height: 72, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted, fontSize: 22, borderRadius: 0
+        }}>+</button>
+        <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display: "none" }}
+          onChange={(e) => { pickFiles(e.target.files); e.target.value = ""; }} />
+      </div>
+      <MediaViewer item={viewer} onClose={() => setViewer(null)} />
+    </div>
+  );
+}
+
+/* ---------- rest timer ---------- */
+function RestTimer({ T }) {
+  const [running, setRunning] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef(null);
+  useEffect(() => {
+    if (!running) return;
+    const iv = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 250);
+    return () => clearInterval(iv);
+  }, [running]);
+  const toggle = () => {
+    if (running) { setRunning(false); return; }
+    startRef.current = Date.now() - elapsed * 1000;
+    setRunning(true);
+  };
+  const reset = () => { setRunning(false); setElapsed(0); };
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+  return (
+    <div style={{ border: `1px solid ${T.rule}`, padding: 12 }}>
+      <Label T={T}>Rest timer</Label>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+        <div className="fl-mono" style={{ flex: 1, fontSize: 28, fontWeight: 600, color: T.fg }}>{mm}:{ss}</div>
+        <button onClick={toggle} className="fl-mono" style={{
+          border: `1px solid ${T.fg}`, background: running ? T.fg : "transparent", color: running ? T.bg : T.fg,
+          padding: "12px 18px", fontSize: 11, letterSpacing: "0.1em", borderRadius: 0
+        }}>{running ? "STOP" : "START"}</button>
+        <button onClick={reset} className="fl-mono" style={{
+          border: `1px solid ${T.rule}`, background: "transparent", color: T.muted,
+          padding: "12px 14px", fontSize: 11, letterSpacing: "0.1em", borderRadius: 0
+        }}>RESET</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- intensity ---------- */
+function IntensityPicker({ T, value, onChange }) {
+  return (
+    <div>
+      <Label T={T}>Intensity</Label>
+      <div className="fl-scroll-x" style={{ display: "flex", gap: 6, marginTop: 11 }}>
+        {INTENSITY_LEVELS.map((n) => (
+          <button key={n} onClick={() => onChange(value === n ? null : n)} className="fl-mono" style={{
+            flex: "none", width: 38, height: 38, border: `1px solid ${T.fg}`, background: value === n ? T.fg : "transparent",
+            color: value === n ? T.bg : T.fg, fontSize: 13, fontWeight: 600, borderRadius: 0
+          }}>{n}</button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -579,8 +891,10 @@ function EnduranceLogEditor({ T, value, onChange }) {
         <div style={{ flex: 1 }}><Label T={T}>Distance (m)</Label>
           <div style={{ marginTop: 8 }}><Input T={T} type="number" placeholder="0" value={value.distanceM} onChange={(e) => onChange({ ...value, distanceM: e.target.value })} /></div></div>
       </div>
-      <div style={{ marginTop: 18 }}><Label T={T}>Notes</Label>
-        <div style={{ marginTop: 8 }}><Area T={T} rows={5} placeholder="e.g. 8×400m @ 90s pace, 2min rest between reps" value={value.notes} onChange={(e) => onChange({ ...value, notes: e.target.value })} /></div></div>
+      <div style={{ marginTop: 18 }}>
+        <NotesField T={T} label="Notes" rows={5} placeholder="e.g. 8×400m @ 90s pace, 2min rest between reps"
+          value={value.notes} onChange={(v) => onChange({ ...value, notes: v })} />
+      </div>
     </div>
   );
 }
@@ -597,10 +911,14 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
   const [endurance, setEndurance] = useState(editSession && editSession.discipline === "conditioning"
     ? { type: editSession.enduranceType || "", distanceM: editSession.enduranceDistance != null ? String(editSession.enduranceDistance) : "", notes: editSession.notes || "" }
     : { type: "", distanceM: "", notes: "" });
+  const [intensity, setIntensity] = useState(editSession && editSession.intensity != null ? editSession.intensity : null);
+  const [mediaIds, setMediaIds] = useState(editSession ? editSession.mediaIds || [] : []);
   const isStrength = discipline === "strength";
   const isEndurance = discipline === "conditioning";
   const isMobility = discipline === "mobility";
   const step = (n) => setDuration((d) => Math.max(0, (Number(d) || 0) + n));
+  const addMedia = (id) => setMediaIds((m) => [...m, id]);
+  const removeMedia = (id) => { window.mediaStore.delete(id).catch(() => {}); setMediaIds((m) => m.filter((x) => x !== id)); };
   const submit = () => onSave({
     id: editSession ? editSession.id : uid(), discipline, date, duration: Number(duration) || 0,
     notes: isEndurance ? endurance.notes.trim() : notes.trim(),
@@ -608,6 +926,8 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
     exerciseLog: isStrength ? exerciseLog : [],
     enduranceType: isEndurance ? endurance.type : "",
     enduranceDistance: isEndurance && endurance.distanceM ? Number(endurance.distanceM) : null,
+    intensity: supportsIntensity(discipline) ? intensity : null,
+    mediaIds,
     createdAt: editSession ? editSession.createdAt : Date.now()
   });
   const repeat = () => { if (!last) return; setDiscipline(last.discipline); if (last.duration) setDuration(last.duration); };
@@ -653,8 +973,13 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
         </div>
       </div>
 
+      {supportsIntensity(discipline) && (
+        <div style={{ marginTop: 18 }}><IntensityPicker T={T} value={intensity} onChange={setIntensity} /></div>
+      )}
+
       {isStrength ? (
-        <div style={{ marginTop: 18 }}>
+        <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+          <RestTimer T={T} />
           <ExerciseLogEditor T={T} log={exerciseLog} setLog={setExerciseLog} plans={(plans || []).filter((p) => p.goal !== "endurance")} sessions={sessions || []} exerciseNames={exerciseNames} />
         </div>
       ) : isEndurance ? (
@@ -663,14 +988,15 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
         </div>
       ) : (
         <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div><Label T={T}>{isMobility ? "What you worked on" : "What you drilled"}</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder={isMobility ? "Hips, ankles, thoracic spine, hamstrings" : "Underhook chains, snap downs, 5 live goes"} value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div>
-          <div><Label T={T}>Went well</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="What worked?" value={didWell} onChange={(e) => setDidWell(e.target.value)} /></div></div>
-          <div><Label T={T}>Fix next time</Label>
-            <div style={{ marginTop: 8 }}><Area T={T} rows={4} placeholder="What needs work?" value={toImprove} onChange={(e) => setToImprove(e.target.value)} /></div></div>
+          <NotesField T={T} label={isMobility ? "What you worked on" : "What you drilled"}
+            placeholder={isMobility ? "Hips, ankles, thoracic spine, hamstrings" : "Underhook chains, snap downs, 5 live goes"}
+            value={notes} onChange={setNotes} />
+          <NotesField T={T} label="Went well" placeholder="What worked?" value={didWell} onChange={setDidWell} />
+          <NotesField T={T} label="Fix next time" placeholder="What needs work?" value={toImprove} onChange={setToImprove} />
         </div>
       )}
+
+      <div style={{ marginTop: 18 }}><MediaField T={T} mediaIds={mediaIds} onAdd={addMedia} onRemove={removeMedia} /></div>
 
       <div style={{ marginTop: 18 }}><Primary T={T} onClick={submit}>Save session</Primary></div>
     </div>
@@ -691,7 +1017,10 @@ function SessionRow({ T, session, onDelete, onEdit }) {
         <div style={{ flex: 1, minWidth: 0, padding: "14px 0 14px 14px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
             <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{disc.label}</div>
-            {!!session.duration && <div className="fl-mono" style={{ flex: "none", fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
+              {session.intensity != null && <span className="fl-mono" style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>INT {session.intensity}</span>}
+              {!!session.duration && <div className="fl-mono" style={{ fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>}
+            </div>
           </div>
           {!open && session.exerciseLog && session.exerciseLog.length > 0 && (
             <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -746,6 +1075,7 @@ function SessionRow({ T, session, onDelete, onEdit }) {
               <div key={l}><Label T={T}>{l}</Label>
                 <div style={{ fontSize: 14, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{v}</div></div>
             ))}
+          {session.mediaIds && session.mediaIds.length > 0 && <MediaThumbs T={T} mediaIds={session.mediaIds} />}
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => onEdit(session)} className="fl-mono" style={{
               background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
@@ -762,10 +1092,50 @@ function SessionRow({ T, session, onDelete, onEdit }) {
   );
 }
 
+function SessionSummaryModal({ T, session, priorSessions, onClose }) {
+  const disc = getDiscipline(session.discipline);
+  const isStrength = session.discipline === "strength";
+  const cmp = isStrength ? buildStrengthComparison(session, priorSessions) : null;
+  const tiles = [{ v: session.duration || "–", l: "MINUTES" }];
+  if (session.intensity != null) tiles.push({ v: `${session.intensity}/10`, l: "INTENSITY" });
+  if (cmp) tiles.push({ v: Math.round(cmp.curTotal).toLocaleString(), l: "KG VOLUME" });
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 70,
+      display: "flex", alignItems: "flex-end", justifyContent: "center"
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 480, boxSizing: "border-box", background: T.bg, borderTop: `2px solid ${T.fg}`, padding: 22
+      }}>
+        <div className="fl-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: T.win, textAlign: "center" }}>✓ SESSION LOGGED SUCCESSFULLY</div>
+        <div style={{ font: "700 24px/1.1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, textAlign: "center", marginTop: 6 }}>{disc.label}</div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${tiles.length}, 1fr)`, gap: 1, marginTop: 18, background: T.rule }}>
+          {tiles.map((t) => (
+            <div key={t.l} style={{ background: T.bg, padding: "14px 8px", textAlign: "center" }}>
+              <div className="fl-mono" style={{ fontSize: 20, fontWeight: 600, color: T.fg }}>{t.v}</div>
+              <div className="fl-mono" style={{ fontSize: 8, letterSpacing: "0.1em", color: T.muted, marginTop: 4 }}>{t.l}</div>
+            </div>
+          ))}
+        </div>
+        {cmp && cmp.matchedCount > 0 && cmp.delta !== null && (
+          <div className="fl-mono" style={{ marginTop: 16, textAlign: "center", fontSize: 12, fontWeight: 600, color: cmp.delta >= 0 ? T.win : T.loss }}>
+            {cmp.delta >= 0 ? "▲" : "▼"} {Math.abs(Math.round(cmp.delta))}% volume vs last time on shared exercises
+          </div>
+        )}
+        {cmp && cmp.matchedCount === 0 && (
+          <div className="fl-mono" style={{ marginTop: 16, textAlign: "center", fontSize: 11, color: T.muted }}>No prior sessions with these exercises yet</div>
+        )}
+        <div style={{ marginTop: 20 }}><Primary T={T} onClick={onClose}>Done</Primary></div>
+      </div>
+    </div>
+  );
+}
+
 function LogView({ T, sessions, addSession, updateSession, deleteSession, plans, exerciseNames }) {
   const [showForm, setShowForm] = useState(false);
   const [editingSession, setEditingSession] = useState(null);
   const [filter, setFilter] = useState("all");
+  const [summary, setSummary] = useState(null);
   const sorted = useMemo(() => [...sessions].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.createdAt - a.createdAt)), [sessions]);
   const filtered = filter === "all" ? sorted : sorted.filter((s) => s.discipline === filter);
   const stats = useMemo(() => {
@@ -796,11 +1166,14 @@ function LogView({ T, sessions, addSession, updateSession, deleteSession, plans,
       )}
       {showForm && (
         <SessionForm T={T} last={sorted[0]} plans={plans} sessions={sessions} exerciseNames={exerciseNames} onCancel={() => setShowForm(false)}
-          onSave={(s) => { addSession(s); setShowForm(false); }} />
+          onSave={(s) => { addSession(s); setShowForm(false); setSummary({ session: s, priorSessions: sessions }); }} />
       )}
       {editingSession && (
         <SessionForm T={T} editSession={editingSession} plans={plans} sessions={sessions} exerciseNames={exerciseNames} onCancel={() => setEditingSession(null)}
           onSave={(s) => { updateSession(s); setEditingSession(null); }} />
+      )}
+      {summary && (
+        <SessionSummaryModal T={T} session={summary.session} priorSessions={summary.priorSessions} onClose={() => setSummary(null)} />
       )}
 
       {!showForm && !editingSession && (
@@ -1195,10 +1568,11 @@ function PRForm({ T, onSave, onCancel, exerciseNames }) {
   const [exercise, setExercise] = useState("");
   const [weight, setWeight] = useState("");
   const [date, setDate] = useState(todayISO());
+  const [mediaIds, setMediaIds] = useState([]);
   const submit = () => {
     const w = parseFloat(weight);
     if (!exercise.trim() || !w) return;
-    onSave({ id: uid(), exercise: exercise.trim(), weight: w, date, createdAt: Date.now() });
+    onSave({ id: uid(), exercise: exercise.trim(), weight: w, date, mediaIds, createdAt: Date.now() });
   };
   return (
     <div style={{ borderTop: `2px solid ${T.fg}`, paddingTop: 14, marginTop: 12 }}>
@@ -1208,6 +1582,11 @@ function PRForm({ T, onSave, onCancel, exerciseNames }) {
         <div style={{ marginTop: 8 }}><Input T={T} type="number" step="0.5" placeholder="0" value={weight} onChange={(e) => setWeight(e.target.value)} /></div></div>
       <div style={{ marginTop: 12 }}><Label T={T}>Date</Label>
         <div style={{ marginTop: 8 }}><Input T={T} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div></div>
+      <div style={{ marginTop: 12 }}>
+        <MediaField T={T} mediaIds={mediaIds}
+          onAdd={(id) => setMediaIds((m) => [...m, id])}
+          onRemove={(id) => { window.mediaStore.delete(id).catch(() => {}); setMediaIds((m) => m.filter((x) => x !== id)); }} />
+      </div>
       <div style={{ display: "flex", gap: 7, marginTop: 14 }}>
         <Ghost T={T} onClick={onCancel}>Cancel</Ghost>
         <div style={{ flex: 1 }}><Primary T={T} onClick={submit}>Save</Primary></div>
@@ -1239,10 +1618,13 @@ function PRGroupCard({ T, exercise, entries, deletePR }) {
         <div style={{ padding: "0 14px 16px" }}>
           {sorted.length > 1 && <div style={{ marginBottom: 12 }}><LineChart T={T} points={sorted.map((e) => ({ x: e.date, y: e.weight }))} height={70} /></div>}
           {sorted.slice().reverse().map((e) => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: `1px solid ${T.rule}` }}>
-              <span className="fl-mono" style={{ fontSize: 10.5, color: T.muted }}>{fmtDateShort(e.date)}</span>
-              <span style={{ fontSize: 13, color: T.fg }}>{e.weight}kg</span>
-              <button onClick={() => deletePR(e.id)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="trash" size={13} /></button>
+            <div key={e.id} style={{ padding: "8px 0", borderTop: `1px solid ${T.rule}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span className="fl-mono" style={{ fontSize: 10.5, color: T.muted }}>{fmtDateShort(e.date)}</span>
+                <span style={{ fontSize: 13, color: T.fg }}>{e.weight}kg</span>
+                <button onClick={() => deletePR(e.id)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="trash" size={13} /></button>
+              </div>
+              {e.mediaIds && e.mediaIds.length > 0 && <div style={{ marginTop: 8 }}><MediaThumbs T={T} mediaIds={e.mediaIds} size={48} /></div>}
             </div>
           ))}
         </div>
@@ -1672,6 +2054,116 @@ function GoalsSection({ T, goals, sessions, addGoal, deleteGoal, toggleGoalDone 
 }
 
 /* ---------- stats ---------- */
+function WeeklyRecapSection({ T, sessions }) {
+  const [open, setOpen] = useState(false);
+  const thisWeek = useMemo(() => {
+    const s = startOfWeekDate(new Date()); const e = new Date(s); e.setDate(s.getDate() + 6);
+    return computeWeekStats(sessions, toISO(s), toISO(e));
+  }, [sessions]);
+  const lastWeek = useMemo(() => {
+    const s = startOfWeekDate(new Date()); s.setDate(s.getDate() - 7); const e = new Date(s); e.setDate(s.getDate() + 6);
+    return computeWeekStats(sessions, toISO(s), toISO(e));
+  }, [sessions]);
+  const volDelta = lastWeek.volume > 0 ? ((thisWeek.volume - lastWeek.volume) / lastWeek.volume) * 100 : null;
+  const topDiscipline = Object.entries(thisWeek.byDiscipline).sort((a, b) => b[1] - a[1])[0];
+  return (
+    <div style={{ border: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Weekly Recap</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{thisWeek.count} sessions</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {thisWeek.count === 0
+            ? <div style={{ fontSize: 13, color: T.muted }}>No sessions logged this week yet.</div>
+            : (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 13, color: T.body }}>Minutes trained</span>
+                  <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{thisWeek.minutes}′</span>
+                </div>
+                {thisWeek.avgIntensity != null && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, color: T.body }}>Avg intensity</span>
+                    <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{thisWeek.avgIntensity.toFixed(1)}/10</span>
+                  </div>
+                )}
+                {topDiscipline && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, color: T.body }}>Most trained</span>
+                    <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{getDiscipline(topDiscipline[0]).label}</span>
+                  </div>
+                )}
+                {thisWeek.volume > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, color: T.body }}>Strength volume</span>
+                    <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>
+                      {Math.round(thisWeek.volume).toLocaleString()}kg
+                      {volDelta !== null && <span style={{ color: volDelta >= 0 ? T.win : T.loss, marginLeft: 6 }}>{volDelta >= 0 ? "▲" : "▼"}{Math.abs(Math.round(volDelta))}%</span>}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VolumeChartSection({ T, sessions }) {
+  const [open, setOpen] = useState(false);
+  const [range, setRange] = useState("1m");
+  const rangeObj = VOLUME_RANGES.find((r) => r.key === range);
+  const buckets = useMemo(() => buildVolumeBuckets(sessions, rangeObj), [sessions, range]);
+  const max = Math.max(...buckets.map((b) => b.y), 1);
+  const total = buckets.reduce((s, b) => s + b.y, 0);
+  const dense = buckets.length > 20;
+  return (
+    <div style={{ border: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Training Volume</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{total.toLocaleString()}kg</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {total === 0 ? (
+            <div style={{ fontSize: 13, color: T.muted }}>No Strength sessions with logged weights in this range yet.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 6 }}>
+                {VOLUME_RANGES.map((r) => <SmallChip key={r.key} T={T} active={range === r.key} onClick={() => setRange(r.key)}>{r.label}</SmallChip>)}
+              </div>
+              <div className="fl-scroll-x" style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: dense ? 2 : 8, height: 120, minWidth: dense ? buckets.length * 6 : "auto" }}>
+                  {buckets.map((b, i) => (
+                    <div key={b.key} title={`${b.label}: ${b.y}kg`} style={{
+                      flex: dense ? "none" : 1, width: dense ? 4 : "auto",
+                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end"
+                    }}>
+                      <div style={{ width: "100%", height: Math.max(2, Math.round((b.y / max) * 100)), background: b.y === max && max > 0 ? T.fg : T.muted }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="fl-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 8.5, color: T.muted, marginTop: 8 }}>
+                <span>{buckets[0] && buckets[0].label}</span>
+                <span>{buckets[buckets.length - 1] && buckets[buckets.length - 1].label}</span>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport, exerciseNames }) {
   const weeks = useMemo(() => buildLastNWeeks(8).map((w) => ({
     ...w, minutes: sessions.filter((s) => s.date >= w.startISO && s.date <= w.endISO).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
@@ -1741,6 +2233,10 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
       </div>
 
       <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
+        <WeeklyRecapSection T={T} sessions={sessions} />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
         <FightRecordSection T={T} fights={fights} addFight={addFight} deleteFight={deleteFight} />
       </div>
 
@@ -1750,6 +2246,10 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
 
       <div style={{ marginTop: 14 }}>
         <PRsSection T={T} prs={prs} addPR={addPR} deletePR={deletePR} exerciseNames={exerciseNames} />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <VolumeChartSection T={T} sessions={sessions} />
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -1879,6 +2379,8 @@ function App() {
     }, ...events], setEvents);
   };
   const deleteSession = (id) => {
+    const target = sessions.find((s) => s.id === id);
+    if (target && target.mediaIds) target.mediaIds.forEach((mid) => window.mediaStore.delete(mid).catch(() => {}));
     persist("sessions", sessions.filter((s) => s.id !== id), setSessions);
     persist("events", events.filter((e) => e.sourceSessionId !== id), setEvents);
   };
@@ -1895,7 +2397,11 @@ function App() {
   const deletePlan = (id) => persist("plans", plans.filter((p) => p.id !== id), setPlans);
   const renamePlan = (id, name) => persist("plans", plans.map((p) => (p.id === id ? { ...p, name } : p)), setPlans);
   const addPR = (p) => persist("prs", [p, ...prs], setPrs);
-  const deletePR = (id) => persist("prs", prs.filter((p) => p.id !== id), setPrs);
+  const deletePR = (id) => {
+    const target = prs.find((p) => p.id === id);
+    if (target && target.mediaIds) target.mediaIds.forEach((mid) => window.mediaStore.delete(mid).catch(() => {}));
+    persist("prs", prs.filter((p) => p.id !== id), setPrs);
+  };
   const addFight = (f) => persist("fights", [f, ...fights], setFights);
   const deleteFight = (id) => persist("fights", fights.filter((f) => f.id !== id), setFights);
   const addBodyweight = (e) => persist("bodyweight", [e, ...bodyweight], setBodyweight);
