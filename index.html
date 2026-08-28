@@ -1528,7 +1528,7 @@ function StrengthView({ T, plans, addPlan, addPlans, deletePlan, renamePlan, exe
 }
 
 /* ---------- charts ---------- */
-function LineChart({ T, points, height = 90 }) {
+function LineChart({ T, points, height = 90, showAllLabels }) {
   const w = 300, pad = 10;
   const vals = points.map((p) => p.y);
   const min = Math.min(...vals), max = Math.max(...vals);
@@ -1540,9 +1540,17 @@ function LineChart({ T, points, height = 90 }) {
     <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ width: "100%", height: "auto", display: "block", overflow: "visible" }}>
       <path d={path} fill="none" stroke={T.fg} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
       {coords.map((c, i) => <circle key={i} cx={c.x} cy={c.y} r={i === coords.length - 1 ? 4 : 2.5} fill={T.bg} stroke={T.fg} strokeWidth="1.6" />)}
-      <text x={coords[coords.length - 1].x} y={coords[coords.length - 1].y - 10} textAnchor="end" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fontWeight="600" fill={T.fg}>
-        {points[points.length - 1].y}
-      </text>
+      {showAllLabels ? (
+        coords.map((c, i) => (
+          <text key={i} x={c.x} y={c.y - 8} textAnchor="middle" fontFamily="'IBM Plex Mono', monospace" fontSize="9" fontWeight="600" fill={T.muted}>
+            {points[i].y}
+          </text>
+        ))
+      ) : (
+        <text x={coords[coords.length - 1].x} y={coords[coords.length - 1].y - 10} textAnchor="end" fontFamily="'IBM Plex Mono', monospace" fontSize="11" fontWeight="600" fill={T.fg}>
+          {points[points.length - 1].y}
+        </text>
+      )}
     </svg>
   );
 }
@@ -2169,7 +2177,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
             ))}
           </div>
         ) : (
-          <LineChart T={T} points={buckets.map((b) => ({ x: b.key, y: b.minutes }))} height={140} />
+          <LineChart T={T} points={buckets.map((b) => ({ x: b.key, y: b.minutes }))} height={140} showAllLabels />
         )}
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           {buckets.map((b) => <div key={b.key} className="fl-mono" style={{ flex: 1, textAlign: "center", fontSize: 8, color: T.muted }}>{b.label}</div>)}

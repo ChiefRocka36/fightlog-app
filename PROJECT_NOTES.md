@@ -198,6 +198,15 @@ freely. All free-text session fields should go through `NotesField`, not a bare 
   did I lift, and is it more than last time" comparison. Don't reintroduce a separate
   kg-over-time chart under the "Training Volume" name without checking first — it was
   explicitly rejected once already.
+- **`LineChart` only labels its last point by default** — that's correct for its
+  original use (the PR trend chart, where only the latest number matters) but was
+  wrong for the minutes-over-time chart: with only one number ever shown, the buckets
+  (which were always computed independently and correctly, never cumulative — see
+  `buildMinutesBuckets`) *looked* like they might be running totals, since there was no
+  way to actually read any month's own value off the line except the last one. Fixed by
+  adding a `showAllLabels` prop that labels every point; the Stats minutes chart passes
+  it, the PR trend chart still doesn't. If another line chart gets added, decide
+  per-case whether every point's real value needs to be legible or just the latest.
 
 ## If you're picking this up in a new conversation
 
