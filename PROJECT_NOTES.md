@@ -207,6 +207,19 @@ freely. All free-text session fields should go through `NotesField`, not a bare 
   adding a `showAllLabels` prop that labels every point; the Stats minutes chart passes
   it, the PR trend chart still doesn't. If another line chart gets added, decide
   per-case whether every point's real value needs to be legible or just the latest.
+- **`LineChart` also defaulted to evenly spacing points by array index**, regardless of
+  the actual date gap between entries — fine for the Stats minutes chart (every
+  week/month/year bucket in the range is always included, so the buckets genuinely are
+  evenly spaced), but wrong for Bodyweight and PR entries, which get logged whenever the
+  user remembers to and can have gaps of a day or two weeks between them. An evenly-
+  spaced axis there visually distorts the trend — a 2kg change over 2 days and a 2kg
+  change over 3 weeks would render as the identical slope. Added a `dateAxis` prop
+  (parses `points[i].x` as an ISO date, positions each point proportionally to real
+  elapsed time instead of by index) and enabled it on both the Bodyweight chart
+  (`BodyweightSection`) and the PR trend chart (`PRGroupCard`) — anywhere a `LineChart`
+  plots real dated log entries rather than fixed-width buckets, it should have
+  `dateAxis` on. Left off for the Stats minutes chart, where index spacing is already
+  correct by construction.
 
 ## If you're picking this up in a new conversation
 
