@@ -221,6 +221,42 @@ freely. All free-text session fields should go through `NotesField`, not a bare 
   `dateAxis` on. Left off for the Stats minutes chart, where index spacing is already
   correct by construction.
 
+## Duration: presets plus a free-typed value
+
+The Duration control in `SessionForm` looks like a fixed display (±15 steppers, a big
+number, then preset chips for 45/60/90/120) but the number display itself is also a
+click target: clicking it swaps in a plain `<input type="number">` (auto-focused,
+closes on blur/Enter) so any exact value — "27 min run" — can be typed directly. The
+presets and steppers stay untouched; this was explicitly "keep the presets, just also
+let me type a custom number," not a replacement.
+
+## Per-set notes are deliberately tiny
+
+Each set in `ExerciseLogEditor` can carry a short free-text `note` (e.g. "shoulder felt
+off", "explosive") via a `✎` icon-button at the end of the set row — clicking it toggles
+a single underlined inline `<input>` directly under that one set, not a textarea per
+set. The user was explicit about not wanting "ein fettes Notizfeld nach jedem Satz" (a
+big note field after every set): keep this control minimal — icon-toggle + one-line
+input — if it's touched again. The `✎` button also changes color (`T.accent` vs
+`T.muted`) when a note already exists, so a collapsed set with a note is still visible.
+Read-only display (`SessionRow`) lists any set notes as small italic lines below that
+exercise's set chips.
+
+## Stats: combat-only filter and per-discipline drill-down
+
+Two additions to `StatsView`, both scoped to data already being computed elsewhere:
+- An **ALL / COMBAT ONLY** toggle above the main minutes chart filters `sessions` (via
+  `getDiscipline(s.discipline).strong`) before bucketing, so a user can see training
+  volume for the five combat disciplines alone with Strength/Endurance/Mobility/Other
+  excluded. Only the top chart is filtered — "Split by discipline" below it always
+  shows every discipline, deliberately, since that section's whole purpose is to show
+  the mix.
+- **"Split by discipline" rows are now clickable** (`expandedDiscipline` state) and
+  expand into `disciplineDetailStats(sessions, key)`: session count, total/average
+  minutes, average intensity (when any session in that discipline has one), a rough
+  weekly frequency (session count divided by weeks between the discipline's first and
+  last logged date), and the last-trained date.
+
 ## If you're picking this up in a new conversation
 
 The conversation history (design rationale, rejected alternatives, exact wording of

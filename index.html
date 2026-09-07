@@ -464,6 +464,21 @@ function computeWeekStats(sessions, startISO, endISO) {
   inRange.forEach((s) => { byDiscipline[s.discipline] = (byDiscipline[s.discipline] || 0) + 1; });
   return { count: inRange.length, minutes, avgIntensity, volume, byDiscipline };
 }
+function disciplineDetailStats(sessions, key) {
+  const list = sessions.filter((s) => s.discipline === key);
+  const totalMinutes = list.reduce((sum, s) => sum + (Number(s.duration) || 0), 0);
+  const avgMinutes = list.length ? Math.round(totalMinutes / list.length) : 0;
+  const withIntensity = list.filter((s) => s.intensity != null);
+  const avgIntensity = withIntensity.length ? withIntensity.reduce((sum, s) => sum + s.intensity, 0) / withIntensity.length : null;
+  const byDate = list.slice().sort((a, b) => a.date.localeCompare(b.date));
+  const first = byDate[0], last = byDate[byDate.length - 1];
+  let perWeek = null;
+  if (first && last && first.date !== last.date) {
+    const days = (new Date(last.date + "T00:00:00") - new Date(first.date + "T00:00:00")) / 86400000;
+    perWeek = list.length / Math.max(1, days / 7);
+  }
+  return { count: list.length, totalMinutes, avgMinutes, avgIntensity, perWeek, lastDate: last ? last.date : null };
+}
 /* Total training minutes (all disciplines) bucketed for the main Stats chart, which
    can be viewed as weekly bars (last 8 weeks), monthly bars (last 12 months), or
    yearly bars (last 5 years) — see MINUTES_RANGES / StatsView. */
@@ -795,6 +810,7 @@ function ExerciseNameInput({ T, value, onChange, knownNames, placeholder }) {
 
 function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
   const [manualName, setManualName] = useState("");
+  const [openNote, setOpenNote] = useState(null);
 
   const usePlan = (plan) => {
     setLog(plan.exercises.map((ex) => ({
@@ -857,14 +873,33 @@ function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
                 <div className="fl-mono" style={{ flex: 1, fontSize: 9, color: T.muted, textAlign: "center" }}>{repsLabel}</div>
                 <div style={{ width: 24 }} />
               </div>
-              {ex.sets.map((s, si) => (
-                <div key={si} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <div className="fl-mono" style={{ width: 20, fontSize: 12, color: T.muted }}>{si + 1}</div>
-                  <div style={{ flex: 1 }}><SetInput T={T} value={s.weight} onChange={(v) => updateSet(i, si, "weight", v)} placeholder={weightPlaceholder} /></div>
-                  <div style={{ flex: 1 }}><SetInput T={T} value={s.reps} onChange={(v) => updateSet(i, si, "reps", v)} placeholder={repsPlaceholder} inputMode={type === "hold" ? "text" : "decimal"} /></div>
-                  <button onClick={() => removeSet(i, si)} style={{ width: 24, height: 24, background: "none", border: "none", color: T.muted }}>×</button>
-                </div>
-              ))}
+              {ex.sets.map((s, si) => {
+                const noteKey = `${i}-${si}`;
+                return (
+                  <div key={si}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <div className="fl-mono" style={{ width: 20, fontSize: 12, color: T.muted }}>{si + 1}</div>
+                      <div style={{ flex: 1 }}><SetInput T={T} value={s.weight} onChange={(v) => updateSet(i, si, "weight", v)} placeholder={weightPlaceholder} /></div>
+                      <div style={{ flex: 1 }}><SetInput T={T} value={s.reps} onChange={(v) => updateSet(i, si, "reps", v)} placeholder={repsPlaceholder} inputMode={type === "hold" ? "text" : "decimal"} /></div>
+                      <button onClick={() => setOpenNote((k) => (k === noteKey ? null : noteKey))} title="Note for this set" style={{
+                        width: 24, height: 24, flex: "none", background: "none", border: "none", fontSize: 13,
+                        color: s.note ? T.accent : T.muted
+                      }}>✎</button>
+                      <button onClick={() => removeSet(i, si)} style={{ width: 24, height: 24, flex: "none", background: "none", border: "none", color: T.muted }}>×</button>
+                    </div>
+                    {openNote === noteKey && (
+                      <div style={{ marginLeft: 28, marginTop: 5 }}>
+                        <input value={s.note || ""} onChange={(e) => updateSet(i, si, "note", e.target.value)} autoFocus
+                          placeholder="e.g. shoulder felt off, explosive"
+                          style={{
+                            width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
+                            border: "none", borderBottom: `1px solid ${T.rule}`, borderRadius: 0, padding: "4px 2px", fontSize: 12, outline: "none"
+                          }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <button onClick={() => addSet(i)} className="fl-mono" style={{
               width: "100%", marginTop: 10, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
@@ -912,6 +947,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
     : { type: "", distanceM: "", notes: "" });
   const [intensity, setIntensity] = useState(editSession && editSession.intensity != null ? editSession.intensity : null);
   const [mediaIds, setMediaIds] = useState(editSession ? editSession.mediaIds || [] : []);
+  const [durationEdit, setDurationEdit] = useState(false);
   const isStrength = discipline === "strength";
   const isEndurance = discipline === "conditioning";
   const isMobility = discipline === "mobility";
@@ -961,8 +997,18 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
       <div style={{ marginTop: 18 }}><Label T={T}>Duration</Label>
         <div style={{ display: "flex", gap: 7, marginTop: 11 }}>
           <button onClick={() => step(-15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>–</button>
-          <div style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0" }}>
-            <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
+          <div onClick={() => setDurationEdit(true)} style={{ flex: 1, border: `1px solid ${T.fg}`, display: "flex", alignItems: "baseline", justifyContent: "center", gap: 6, padding: "14px 0", cursor: "pointer" }}>
+            {durationEdit ? (
+              <input type="number" inputMode="numeric" autoFocus value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={() => setDurationEdit(false)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setDurationEdit(false); } }}
+                className="fl-mono"
+                style={{ width: 64, textAlign: "center", fontSize: 30, fontWeight: 600, color: T.fg, background: "transparent", border: "none", outline: "none" }} />
+            ) : (
+              <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
+            )}
             <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
           </div>
           <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
@@ -1059,6 +1105,13 @@ function SessionRow({ T, session, onDelete, onEdit }) {
                     })}
                     {ex.sets.every((s) => !s.weight && !s.reps) && <span style={{ fontSize: 12, color: T.muted }}>No sets logged</span>}
                   </div>
+                  {ex.sets.some((s) => s.note) && (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {ex.sets.map((s, si) => s.note && (
+                        <div key={si} style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>Set {si + 1}: {s.note}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -2138,7 +2191,10 @@ function WeeklyRecapSection({ T, sessions }) {
 function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport, exerciseNames }) {
   const [minutesRange, setMinutesRange] = useState("week");
   const [chartType, setChartType] = useState("bar");
-  const buckets = useMemo(() => buildMinutesBuckets(sessions, minutesRange), [sessions, minutesRange]);
+  const [combatOnly, setCombatOnly] = useState(false);
+  const [expandedDiscipline, setExpandedDiscipline] = useState(null);
+  const chartSessions = useMemo(() => (combatOnly ? sessions.filter((s) => getDiscipline(s.discipline).strong) : sessions), [sessions, combatOnly]);
+  const buckets = useMemo(() => buildMinutesBuckets(chartSessions, minutesRange), [chartSessions, minutesRange]);
   const max = Math.max(...buckets.map((b) => b.minutes), 1);
   const total = buckets.reduce((s, b) => s + b.minutes, 0);
   const avg = Math.round(total / buckets.length);
@@ -2176,6 +2232,11 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
       </div>
 
       <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
+        <SmallChip T={T} active={!combatOnly} onClick={() => setCombatOnly(false)}>ALL</SmallChip>
+        <SmallChip T={T} active={combatOnly} onClick={() => setCombatOnly(true)}>COMBAT ONLY</SmallChip>
+      </div>
+
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
         {MINUTES_RANGES.map((r) => <SmallChip key={r.key} T={T} active={minutesRange === r.key} onClick={() => setMinutesRange(r.key)}>{r.label}</SmallChip>)}
       </div>
 
@@ -2204,13 +2265,53 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
             ? <div style={{ fontSize: 13, color: T.body, padding: "10px 0" }}>No sessions logged yet.</div>
             : rows.map((d) => {
                 const pct = Math.round((d.count / sessions.length) * 100);
+                const isOpen = expandedDiscipline === d.key;
+                const detail = isOpen ? disciplineDetailStats(sessions, d.key) : null;
                 return (
-                  <div key={d.key} style={{ padding: "9px 0", borderBottom: `1px solid ${T.rule}` }}>
-                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                      <span style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{d.label}</span>
-                      <span className="fl-mono" style={{ fontSize: 12, color: T.muted }}>{pct}%</span>
-                    </div>
-                    <div style={{ height: 6, background: T.rule, marginTop: 9 }}><div style={{ height: 6, width: `${pct}%`, background: T.fg }} /></div>
+                  <div key={d.key} style={{ borderBottom: `1px solid ${T.rule}` }}>
+                    <button onClick={() => setExpandedDiscipline((k) => (k === d.key ? null : d.key))} style={{
+                      display: "block", width: "100%", background: "transparent", border: "none", padding: "9px 0", textAlign: "left"
+                    }}>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                        <span style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{d.label}</span>
+                        <span className="fl-mono" style={{ fontSize: 12, color: T.muted }}>{pct}%</span>
+                      </div>
+                      <div style={{ height: 6, background: T.rule, marginTop: 9 }}><div style={{ height: 6, width: `${pct}%`, background: T.fg }} /></div>
+                    </button>
+                    {isOpen && (
+                      <div style={{ padding: "0 0 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, color: T.body }}>Sessions</span>
+                          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.count}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, color: T.body }}>Total time</span>
+                          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.totalMinutes}′</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, color: T.body }}>Avg session</span>
+                          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.avgMinutes}′</span>
+                        </div>
+                        {detail.avgIntensity != null && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: T.body }}>Avg intensity</span>
+                            <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.avgIntensity.toFixed(1)}/10</span>
+                          </div>
+                        )}
+                        {detail.perWeek != null && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: T.body }}>Frequency</span>
+                            <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.perWeek.toFixed(1)}x/week</span>
+                          </div>
+                        )}
+                        {detail.lastDate && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: T.body }}>Last trained</span>
+                            <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{fmtDateShort(detail.lastDate)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
