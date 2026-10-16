@@ -289,6 +289,35 @@ number. Behavior that depends on it:
   badge letter, so a drop set doesn't read like a normal one.
 - `SessionRow` shows the badge on each chip (warm-ups dashed + dimmed) with a small legend.
 
+## Badges
+
+Badges are **derived, never stored** (same principle as goals): `computeBadgeData(sessions, prs,
+fights, goals)` -> `computeBadgeStates` evaluates `BADGE_TRACKS` on every render, so they can't
+drift, can't be awarded twice, and a backup import restores them for free. A *track* has tiers
+(sessions 10/50/100/250/500, ...); a track with one tier is a one-off achievement. Three
+hand-drawn-in-code styles (`BadgeGraphic`, SVG, no image files — chosen so there's no
+copyright/asset question and it works offline): **belt** = tiered milestones (stripes = tier),
+**ring** = progress/streaks, **stamp** = records and one-offs. Don't use third-party logos, org names
+or copied badge art. After saving a new session, `LogView` diffs the badge states before/after
+(`diffBadges`) and `SessionSummaryModal` shows any newly reached tier. To add a badge: add a track
+(and a `computeBadgeData` field if it needs new data) plus German strings in `DE`.
+Streak = consecutive Mon–Sun weeks with >=1 session (current streak survives an empty current week).
+
+## Focus areas (recurring "Fix next time" topics)
+
+`computeFocusTopics` scans the last 8 weeks (`FOCUS_WINDOW_DAYS`) of `toImprove` / `didWell` text
+against `FOCUS_LEXICON` (technique names, EN + DE synonyms, each with an optional German label) plus
+the user's custom terms, and keeps topics that appear in >=3 sessions (`FOCUS_MIN_SESSIONS`). If a
+topic is later mentioned under "Went well" (newer than its last problem mention) it flips to
+*improving*. It is plain keyword matching on purpose — no AI/API (a static GitHub Pages app can't
+hold an API key and notes shouldn't leave the device). Matching blanks out each hit (longest term
+first) so "double leg takedown" isn't also counted as "takedown", and allows simple plural/German
+endings. `suggestFocusTerms` offers recurring words not in the lexicon as one-tap custom terms. Only
+`focusTerms` (custom terms) and `focusResolved` ({topicKey: ISO date}) are stored — resolving a topic
+ignores mentions up to that date, so it only returns after 3 *new* mentions. Both are in the backup
+export/import. The new-session form shows a "Focus for this session" box (top 3 topics with >=2
+mentions in the chosen discipline). To teach it a new technique: add an `ft(...)` line to the lexicon.
+
 ## If you're picking this up in a new conversation
 
 The conversation history (design rationale, rejected alternatives, exact wording of

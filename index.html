@@ -235,7 +235,21 @@ const DE = {
   "Your data lives on this device only. Export a file regularly or move it to another phone.": "Deine Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Datei oder übertrage sie auf ein anderes Handy.",
   "Could not read that file. Is it a Fight Log backup?": "Datei konnte nicht gelesen werden. Ist es ein Fight-Log-Backup?",
   "Found:": "Gefunden:", "events": "Events", "plans": "Pläne", "Importing replaces everything on this device.": "Beim Import wird alles auf diesem Gerät ersetzt.",
-  "Replace": "Ersetzen"
+  "Replace": "Ersetzen",
+  // badges
+  "Badges": "Badges", "First": "Erstes", "LOCKED": "GESPERRT", "UNLOCKED": "FREIGESCHALTET", "MAX TIER": "HÖCHSTE STUFE", "Current": "Aktuell", "NEW BADGE": "NEUES BADGE",
+  "Training hours": "Trainingsstunden", "Strength sessions": "Kraft-Sessions", "Week streak": "Wochen-Serie", "Weekly goals hit": "Wochenziele erreicht",
+  "Personal records": "Persönliche Rekorde", "Fight wins": "Kampfsiege", "Finisher": "Finisher", "Heavy day": "Schwerer Tag", "Cross-trainer": "Cross-Trainer",
+  "Complete week": "Komplette Woche", "Max effort": "Volle Intensität", "hours": "Std.", "weeks": "Wochen", "PRs": "PRs", "PR": "PR", "wins": "Siege", "win": "Sieg", "week": "Woche", "kg in one session": "kg in einer Session",
+  "Win a fight by KO or submission": "Gewinne einen Kampf per KO oder Aufgabe", "3 different disciplines in one week": "3 verschiedene Disziplinen in einer Woche",
+  "Combat, strength, endurance and mobility in one week": "Kampfsport, Kraft, Ausdauer und Mobilität in einer Woche", "Log an intensity of 10": "Logge eine Intensität von 10",
+  // focus areas
+  "Focus areas": "Fokus-Themen", "topics": "Themen", "IMPROVING": "WIRD BESSER", "NEEDS FOCUS": "FOKUS NÖTIG", "MARK RESOLVED": "ALS ERLEDIGT MARKIEREN",
+  "to fix in the last 8 weeks": "zu verbessern in den letzten 8 Wochen", "last": "zuletzt", "went well": "lief gut", "today": "heute", "yesterday": "gestern", "days ago": "Tage her",
+  "No recurring weak spots yet": "Noch keine wiederkehrenden Schwächen",
+  "A topic shows up here once it comes back under “Fix next time” in 3 sessions within 8 weeks.": "Ein Thema erscheint hier, sobald es in 3 Sessions innerhalb von 8 Wochen unter „Nächstes Mal verbessern“ auftaucht.",
+  "Suggestions": "Vorschläge", "Words that keep coming back under “Fix next time”. Tap one to track it.": "Wörter, die unter „Nächstes Mal verbessern“ immer wieder auftauchen. Tippen zum Tracken.",
+  "Your own terms": "Eigene Begriffe", "Add a term, e.g. kimura or footwork": "Begriff hinzufügen, z.B. Kimura oder Fußarbeit", "FOCUS FOR THIS SESSION": "FOKUS FÜR DIESE SESSION"
 };
 
 /* ---------- theme ---------- */
@@ -663,6 +677,187 @@ function buildMinutesBuckets(sessions, range) {
     });
   }
   return out;
+}
+
+/* ---------- badges ----------
+   Badges are never stored: like goal progress they're derived from the logged data on every
+   render (computeBadgeData -> computeBadgeStates), so they can't drift out of sync, can't be
+   awarded twice, and importing a backup restores them for free. A "track" has one or more tiers
+   (e.g. sessions: 10/50/100/250/500); a track with a single tier is a one-off achievement. */
+const shiftISO = (iso, days) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + days); return toISO(d); };
+const weekKeyOf = (iso) => toISO(startOfWeekDate(new Date(iso + "T00:00:00")));
+const daysAgo = (iso) => Math.round((new Date(todayISO() + "T00:00:00") - new Date(iso + "T00:00:00")) / 86400000);
+const daysAgoLabel = (iso) => { const n = daysAgo(iso); return n <= 0 ? tr("today") : n === 1 ? tr("yesterday") : `${n} ${tr("days ago")}`; };
+function computeStreaks(sessions) {
+  const keys = Array.from(new Set(sessions.map((s) => weekKeyOf(s.date)))).sort();
+  const set = new Set(keys);
+  let longest = 0, run = 0, prev = null;
+  keys.forEach((k) => { run = prev && shiftISO(prev, 7) === k ? run + 1 : 1; longest = Math.max(longest, run); prev = k; });
+  const thisKey = toISO(startOfWeekDate(new Date()));
+  let cursor = set.has(thisKey) ? thisKey : set.has(shiftISO(thisKey, -7)) ? shiftISO(thisKey, -7) : null;
+  let current = 0;
+  while (cursor && set.has(cursor)) { current++; cursor = shiftISO(cursor, -7); }
+  return { longest, current };
+}
+function countGoalWeeks(sessions, goals) {
+  let total = 0;
+  (goals || []).filter((g) => g.tier === "weekly" && g.target).forEach((g) => {
+    const startKey = weekKeyOf(toISO(new Date(g.createdAt || Date.now())));
+    const counts = {};
+    sessions.forEach((s) => { if (matchesGoalDiscipline(s, g.disciplineFilter)) { const k = weekKeyOf(s.date); counts[k] = (counts[k] || 0) + 1; } });
+    Object.keys(counts).forEach((k) => { if (k >= startKey && counts[k] >= g.target) total++; });
+  });
+  return total;
+}
+function computeBadgeData(sessions, prs, fights, goals) {
+  const minutes = sessions.reduce((a, s) => a + (Number(s.duration) || 0), 0);
+  const streak = computeStreaks(sessions);
+  const byWeek = {};
+  sessions.forEach((s) => { const k = weekKeyOf(s.date); (byWeek[k] = byWeek[k] || []).push(s); });
+  let cross = 0, complete = 0;
+  Object.values(byWeek).forEach((list) => {
+    const kinds = new Set(list.map((s) => s.discipline));
+    if (kinds.size >= 3) cross = 1;
+    if (list.some((s) => getDiscipline(s.discipline).strong) && kinds.has("strength") && kinds.has("conditioning") && kinds.has("mobility")) complete = 1;
+  });
+  const wins = (fights || []).filter((f) => f.result === "W");
+  const count = (key) => sessions.filter((s) => s.discipline === key).length;
+  return {
+    sessions: sessions.length, hours: Math.floor(minutes / 6) / 10, streakLongest: streak.longest, streakCurrent: streak.current,
+    goalWeeks: countGoalWeeks(sessions, goals), prCount: (prs || []).length, wins: wins.length,
+    finisherWins: wins.filter((f) => f.method === "KO/TKO" || f.method === "Submission").length,
+    strengthSessions: count("strength"), mobilitySessions: count("mobility"), enduranceSessions: count("conditioning"),
+    crossTrainer: cross, completeWeek: complete, maxIntensity: sessions.some((s) => s.intensity === 10) ? 1 : 0,
+    maxVolume: sessions.reduce((m, s) => (s.discipline === "strength" ? Math.max(m, computeSessionVolume(s)) : m), 0)
+  };
+}
+const BADGE_TRACKS = [
+  { key: "sessions", style: "belt", title: "Sessions", unit: "sessions", tiers: [10, 50, 100, 250, 500], value: (d) => d.sessions },
+  { key: "hours", style: "belt", title: "Training hours", unit: "hours", tiers: [10, 50, 100, 250, 500], value: (d) => d.hours },
+  { key: "strengthSessions", style: "belt", title: "Strength sessions", unit: "sessions", tiers: [10, 25, 50, 100], value: (d) => d.strengthSessions },
+  { key: "streak", style: "ring", title: "Week streak", unit: "weeks", tiers: [2, 4, 12, 26, 52], value: (d) => d.streakLongest, note: (d) => `${tr("Current")}: ${d.streakCurrent}` },
+  { key: "goalWeeks", style: "ring", title: "Weekly goals hit", unit: "weeks", unit1: "week", tiers: [1, 4, 12, 26], value: (d) => d.goalWeeks },
+  { key: "mobility", style: "ring", title: "Mobility", unit: "sessions", tiers: [5, 20, 50], value: (d) => d.mobilitySessions },
+  { key: "endurance", style: "ring", title: "Endurance", unit: "sessions", tiers: [5, 20, 50], value: (d) => d.enduranceSessions },
+  { key: "prs", style: "stamp", glyph: "PR", accent: true, title: "Personal records", unit: "PRs", unit1: "PR", tiers: [1, 5, 10, 25], value: (d) => d.prCount },
+  { key: "wins", style: "stamp", glyph: "W", accent: true, title: "Fight wins", unit: "wins", unit1: "win", tiers: [1, 3, 5, 10], value: (d) => d.wins },
+  { key: "finisher", style: "stamp", glyph: "FIN", accent: true, title: "Finisher", desc: "Win a fight by KO or submission", tiers: [1], value: (d) => d.finisherWins },
+  { key: "tonnage", style: "stamp", glyph: "KG", title: "Heavy day", unit: "kg in one session", tiers: [2000, 5000, 10000], value: (d) => d.maxVolume },
+  { key: "cross", style: "stamp", glyph: "3×", title: "Cross-trainer", desc: "3 different disciplines in one week", tiers: [1], value: (d) => d.crossTrainer },
+  { key: "complete", style: "stamp", glyph: "ALL", title: "Complete week", desc: "Combat, strength, endurance and mobility in one week", tiers: [1], value: (d) => d.completeWeek },
+  { key: "maxeffort", style: "stamp", glyph: "10", title: "Max effort", desc: "Log an intensity of 10", tiers: [1], value: (d) => d.maxIntensity }
+];
+function computeBadgeStates(data) {
+  return BADGE_TRACKS.map((t) => { const value = t.value(data); return { track: t, value, tier: t.tiers.filter((n) => value >= n).length }; });
+}
+const badgeTierLabel = (track, tier) => {
+  if (track.tiers.length === 1) return tr(track.title);
+  const n = track.tiers[tier - 1];
+  return `${n.toLocaleString()} ${tr(n === 1 && track.unit1 ? track.unit1 : track.unit)}`;
+};
+function diffBadges(before, after) {
+  const out = [];
+  after.forEach((a, i) => { if (a.tier > before[i].tier) out.push(`${a.track.tiers.length === 1 ? "" : tr(a.track.title) + " · "}${badgeTierLabel(a.track, a.tier)}`); });
+  return out;
+}
+
+/* ---------- focus areas ----------
+   "Fix next time" notes are free text, so recurring weak spots are found by matching a technique
+   lexicon (EN + DE synonyms) plus the user's own terms against the notes of the last 8 weeks.
+   A topic shows up once it appears in 3+ sessions; if it later turns up under "Went well" the card
+   flips to "improving". Everything is derived on the fly; only the user's custom terms and the
+   "resolved" dates are stored. Matching blanks out each hit so a specific term ("double leg")
+   isn't counted again by a generic one ("takedown"). */
+const ft = (key, en, terms, de) => ({ key, en, de, terms });
+const FOCUS_LEXICON = [
+  ft("kimura", "Kimura", ["kimura"]), ft("americana", "Americana", ["americana", "keylock"]),
+  ft("armbar", "Armbar", ["armbar", "arm bar", "armhebel", "juji gatame"]), ft("triangle", "Triangle", ["triangle", "dreieck", "sankaku"], "Triangle / Dreieck"),
+  ft("guillotine", "Guillotine", ["guillotine", "guillotin"]), ft("rnc", "Rear naked choke", ["rear naked", "rear-naked", "rnc"], "Rear naked choke"),
+  ft("omoplata", "Omoplata", ["omoplata"]), ft("leglocks", "Leg locks", ["heel hook", "heelhook", "leg lock", "leglock", "kneebar", "ankle lock", "straight ankle", "fußhebel", "beinhebel"], "Leg Locks"),
+  ft("guardret", "Guard retention", ["guard retention", "guard-retention", "retention", "guard halten"], "Guard Retention"),
+  ft("guardpass", "Guard passing", ["guard pass", "guardpass", "pass the guard", "passing", "guard passen"], "Guard Passing"),
+  ft("halfguard", "Half guard", ["half guard", "halfguard", "half-guard", "halbe guard"], "Half Guard"), ft("closedguard", "Closed guard", ["closed guard", "geschlossene guard"], "Geschlossene Guard"),
+  ft("openguard", "Open guard", ["de la riva", "spider guard", "x-guard", "x guard", "single leg x", "lasso", "butterfly"], "Open Guard"),
+  ft("sweeps", "Sweeps", ["sweep", "sweeping"], "Sweeps"), ft("hipescape", "Hip escape", ["hip escape", "shrimp", "shrimping", "hüftflucht"], "Hip Escape"),
+  ft("escapes", "Escapes", ["escape", "befreiung", "befreien"], "Befreiungen"), ft("mount", "Mount", ["mount", "mounted"], "Mount"),
+  ft("backcontrol", "Back control", ["back control", "back take", "back-take", "taking the back", "rückenkontrolle"], "Rückenkontrolle"),
+  ft("sidecontrol", "Side control", ["side control", "side-control", "seitkontrolle"], "Seitkontrolle"),
+  ft("doubleleg", "Double leg", ["double leg takedown", "double leg", "double-leg", "doppelbein"], "Double Leg"), ft("singleleg", "Single leg", ["single leg takedown", "single leg", "single-leg", "einzelbein"], "Single Leg"),
+  ft("sprawl", "Takedown defense", ["sprawl", "takedown defense", "takedown defence", "takedown-abwehr", "wurfabwehr"], "Takedown-Abwehr"),
+  ft("takedowns", "Takedowns", ["takedown", "take down", "wurf", "würfe", "hip toss", "hüftwurf", "ankle pick"], "Takedowns / Würfe"),
+  ft("clinch", "Clinch", ["clinch", "plum", "nackengriff"], "Clinch"), ft("underhooks", "Underhooks and ties", ["underhook", "overhook", "over-under", "body lock", "bodylock"], "Underhooks"),
+  ft("grips", "Grip fighting", ["grip fighting", "grip fight", "grips", "grip", "griffkampf"], "Grip Fighting"), ft("pressure", "Top pressure", ["pressure", "druck", "chest pressure"], "Druck von oben"),
+  ft("transitions", "Transitions and scrambles", ["transition", "scramble", "übergang", "übergänge"], "Übergänge / Scrambles"),
+  ft("jab", "Jab", ["jab"], "Jab"), ft("cross", "Cross", ["cross", "straight right", "rechte gerade", "linke gerade"], "Cross / Gerade"),
+  ft("hook", "Hooks", ["left hook", "right hook", "linker haken", "rechter haken", "haken"], "Haken"), ft("uppercut", "Uppercut", ["uppercut"], "Uppercut"),
+  ft("lowkick", "Low kick", ["low kick", "lowkick", "leg kick", "legkick"], "Low Kick"), ft("teep", "Teep / front kick", ["teep", "push kick", "front kick", "frontkick"], "Teep / Frontkick"),
+  ft("highkick", "Head and body kicks", ["roundhouse", "body kick", "bodykick", "high kick", "highkick", "head kick", "rundkick"], "Kicks zu Kopf und Körper"),
+  ft("kicks", "Kicks", ["kick", "tritt", "tritte"], "Kicks"), ft("kneeselbows", "Knees and elbows", ["knee strike", "knees", "kniestoß", "kniestöße", "elbow strike", "elbows", "ellbogenschlag"], "Knie und Ellbogen"),
+  ft("combos", "Combinations", ["combo", "combination", "kombi", "kombination"], "Kombinationen"), ft("footwork", "Footwork", ["footwork", "fußarbeit", "beinarbeit", "pivot"], "Fußarbeit"),
+  ft("defense", "Defense", ["defense", "defence", "verteidigung", "deckung", "parry", "slips", "slipping", "ausweichen", "hands up", "hände hoch"], "Verteidigung"),
+  ft("distance", "Distance and timing", ["distance", "distanz", "abstand", "timing"], "Distanz und Timing"),
+  ft("cardio", "Cardio / gas tank", ["cardio", "gassed", "gas tank", "aus der puste", "außer atem", "puste", "kondition", "ausdauer", "atmung", "breathing"], "Kondition / Puste"),
+  ft("relax", "Staying relaxed", ["relax", "entspannt", "verkrampft", "tense", "anspannung"], "Entspannt bleiben"),
+  ft("initiative", "Taking initiative", ["passive", "passiv", "initiative", "too defensive", "zu defensiv"], "Initiative ergreifen"),
+  ft("mindset", "Focus and confidence", ["focus", "fokus", "konzentration", "confidence", "selbstvertrauen", "hesitat", "zögern", "nervös", "nervous"], "Fokus und Selbstvertrauen"),
+  ft("hipmobility", "Hip mobility", ["hip mobility", "hüftbeweglichkeit", "hüfte", "flexibility", "flexibilität", "beweglichkeit"], "Hüftbeweglichkeit")
+];
+const FOCUS_WINDOW_DAYS = 56, FOCUS_MIN_SESSIONS = 3;
+const FOCUS_STOPWORDS = new Set(("this that with from have been were what when where which while would could should about after before again also because being doing during each every just like more most much need needs only other over really same some still such than then there these they very want well work working better worse more keep make made time times sessions session today yesterday week good bad " +
+  "nicht noch mehr besser immer wieder auch aber oder dass wenn dann diese dieser dieses einen einem einer eine ihre sein seine sind waren wurde werden haben hatte hatten muss müssen kann können noch schon sehr heute gestern woche training einfach etwas alles mal beim vom zum zur über unter nach gegen ohne wegen weil viel viele immer mein meine meinen").split(" "));
+const focusReCache = {};
+function focusRegex(term) {
+  if (!focusReCache[term]) {
+    const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    focusReCache[term] = new RegExp("(^|[^a-zäöüß0-9])" + esc + "(?:s|es|en|n|e)?(?![a-zäöüß0-9])", "g");
+  }
+  return focusReCache[term];
+}
+function focusTopicList(customTerms) {
+  return FOCUS_LEXICON.concat((customTerms || []).map((t) => ({ key: "c:" + t, en: t, de: undefined, terms: [t], custom: true })));
+}
+const focusFlat = (topics) => topics.flatMap((t) => t.terms.map((term) => [term, t.key])).sort((a, b) => b[0].length - a[0].length);
+function matchFocus(text, flat) {
+  const found = new Set();
+  let rest = " " + String(text || "").toLowerCase() + " ";
+  flat.forEach(([term, key]) => {
+    const next = rest.replace(focusRegex(term), "$1 ");
+    if (next !== rest) { found.add(key); rest = next; }
+  });
+  return { found, rest };
+}
+const focusLabel = (topic) => (LANG === "de" && topic.de ? topic.de : topic.en);
+function computeFocusTopics(sessions, customTerms, resolved) {
+  const topics = focusTopicList(customTerms);
+  const byKey = {};
+  topics.forEach((t) => { byKey[t.key] = t; });
+  const flat = focusFlat(topics);
+  const cutoff = shiftISO(todayISO(), -FOCUS_WINDOW_DAYS);
+  const stats = {};
+  const get = (k) => stats[k] || (stats[k] = { key: k, topic: byKey[k], problem: 0, good: 0, lastProblem: "", lastGood: "", byDiscipline: {} });
+  sessions.filter((s) => s.date >= cutoff).forEach((s) => {
+    if (s.toImprove) matchFocus(s.toImprove, flat).found.forEach((k) => {
+      if (resolved && resolved[k] && s.date <= resolved[k]) return;
+      const st = get(k); st.problem++; if (s.date > st.lastProblem) st.lastProblem = s.date;
+      st.byDiscipline[s.discipline] = (st.byDiscipline[s.discipline] || 0) + 1;
+    });
+    if (s.didWell) matchFocus(s.didWell, flat).found.forEach((k) => { const st = get(k); st.good++; if (s.date > st.lastGood) st.lastGood = s.date; });
+  });
+  return Object.values(stats).filter((st) => st.problem >= FOCUS_MIN_SESSIONS)
+    .map((st) => ({ ...st, status: st.lastGood && st.lastGood > st.lastProblem ? "improving" : "focus" }))
+    .sort((a, b) => (a.status === b.status ? b.problem - a.problem || b.lastProblem.localeCompare(a.lastProblem) : a.status === "focus" ? -1 : 1));
+}
+/* Words that keep coming back in "Fix next time" but aren't in the lexicon yet -> offered as one-tap custom terms. */
+function suggestFocusTerms(sessions, customTerms) {
+  const topics = focusTopicList(customTerms);
+  const flat = focusFlat(topics);
+  const cutoff = shiftISO(todayISO(), -FOCUS_WINDOW_DAYS);
+  const counts = {};
+  sessions.filter((s) => s.date >= cutoff && s.toImprove).forEach((s) => {
+    const words = new Set(matchFocus(s.toImprove, flat).rest.split(/[^a-zäöüß]+/).filter((w) => w.length >= 4 && !FOCUS_STOPWORDS.has(w)));
+    words.forEach((w) => { counts[w] = (counts[w] || 0) + 1; });
+  });
+  return Object.entries(counts).filter(([, n]) => n >= FOCUS_MIN_SESSIONS).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([w]) => w);
 }
 
 /* ---------- primitives ---------- */
@@ -1101,7 +1296,7 @@ function EnduranceLogEditor({ T, value, onChange }) {
 }
 
 /* ---------- session form ---------- */
-function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames, editSession }) {
+function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames, editSession, focusTopics }) {
   const [discipline, setDiscipline] = useState(editSession ? editSession.discipline : last ? last.discipline : "mma");
   const [date, setDate] = useState(editSession ? editSession.date : todayISO());
   const [duration, setDuration] = useState(editSession ? editSession.duration || 0 : last && last.duration ? last.duration : 90);
@@ -1115,6 +1310,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
   const [intensity, setIntensity] = useState(editSession && editSession.intensity != null ? editSession.intensity : null);
   const [mediaIds, setMediaIds] = useState(editSession ? editSession.mediaIds || [] : []);
   const [durationEdit, setDurationEdit] = useState(false);
+  const reminders = editSession ? [] : (focusTopics || []).filter((t) => t.status === "focus" && (t.byDiscipline[discipline] || 0) >= 2).slice(0, 3);
   const isStrength = discipline === "strength";
   const isEndurance = discipline === "conditioning";
   const isMobility = discipline === "mobility";
@@ -1200,6 +1396,12 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
         </div>
       ) : (
         <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+          {reminders.length > 0 && (
+            <div style={{ border: `1px solid ${T.fg}`, padding: "10px 12px" }}>
+              <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.accent }}>{tr("FOCUS FOR THIS SESSION")}</div>
+              <div style={{ font: "600 13px/1.4 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, marginTop: 6 }}>{reminders.map((t) => focusLabel(t.topic)).join(" · ")}</div>
+            </div>
+          )}
           <NotesField T={T} label={isMobility ? "What you worked on" : "What you drilled"}
             placeholder={isMobility ? "Hips, ankles, thoracic spine, hamstrings" : "Underhook chains, snap downs, 5 live goes"}
             value={notes} onChange={setNotes} />
@@ -1318,7 +1520,7 @@ function SessionRow({ T, session, onDelete, onEdit }) {
   );
 }
 
-function SessionSummaryModal({ T, session, priorSessions, onClose }) {
+function SessionSummaryModal({ T, session, priorSessions, newBadges, onClose }) {
   const disc = getDiscipline(session.discipline);
   const isStrength = session.discipline === "strength";
   const cmp = isStrength ? buildStrengthComparison(session, priorSessions) : null;
@@ -1351,13 +1553,19 @@ function SessionSummaryModal({ T, session, priorSessions, onClose }) {
         {cmp && cmp.matchedCount === 0 && (
           <div className="fl-mono" style={{ marginTop: 16, textAlign: "center", fontSize: 11, color: T.muted }}>{tr("No prior sessions with these exercises yet")}</div>
         )}
+        {newBadges && newBadges.length > 0 && (
+          <div style={{ marginTop: 16, border: `1px solid ${T.fg}`, padding: "10px 12px" }}>
+            <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.accent }}>▲ {tr("NEW BADGE")}</div>
+            {newBadges.map((b) => <div key={b} style={{ font: "600 13px/1.3 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, marginTop: 6 }}>{b}</div>)}
+          </div>
+        )}
         <div style={{ marginTop: 20 }}><Primary T={T} onClick={onClose}>Done</Primary></div>
       </div>
     </div>
   );
 }
 
-function LogView({ T, sessions, addSession, updateSession, deleteSession, plans, exerciseNames }) {
+function LogView({ T, sessions, addSession, updateSession, deleteSession, plans, exerciseNames, prs, fights, goals, focusTopics }) {
   const [showForm, setShowForm] = useState(false);
   const [editingSession, setEditingSession] = useState(null);
   const [filter, setFilter] = useState("all");
@@ -1391,15 +1599,21 @@ function LogView({ T, sessions, addSession, updateSession, deleteSession, plans,
         </div>
       )}
       {showForm && (
-        <SessionForm T={T} last={sorted[0]} plans={plans} sessions={sessions} exerciseNames={exerciseNames} onCancel={() => setShowForm(false)}
-          onSave={(s) => { addSession(s); setShowForm(false); setSummary({ session: s, priorSessions: sessions }); }} />
+        <SessionForm T={T} last={sorted[0]} plans={plans} sessions={sessions} exerciseNames={exerciseNames} focusTopics={focusTopics} onCancel={() => setShowForm(false)}
+          onSave={(s) => {
+            const newBadges = diffBadges(
+              computeBadgeStates(computeBadgeData(sessions, prs, fights, goals)),
+              computeBadgeStates(computeBadgeData([s, ...sessions], prs, fights, goals))
+            );
+            addSession(s); setShowForm(false); setSummary({ session: s, priorSessions: sessions, newBadges });
+          }} />
       )}
       {editingSession && (
         <SessionForm T={T} editSession={editingSession} plans={plans} sessions={sessions} exerciseNames={exerciseNames} onCancel={() => setEditingSession(null)}
           onSave={(s) => { updateSession(s); setEditingSession(null); }} />
       )}
       {summary && (
-        <SessionSummaryModal T={T} session={summary.session} priorSessions={summary.priorSessions} onClose={() => setSummary(null)} />
+        <SessionSummaryModal T={T} session={summary.session} priorSessions={summary.priorSessions} newBadges={summary.newBadges} onClose={() => setSummary(null)} />
       )}
 
       {!showForm && !editingSession && (
@@ -2362,7 +2576,159 @@ function WeeklyRecapSection({ T, sessions }) {
 }
 
 
-function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport, exerciseNames }) {
+/* Drawn in code (no image files): belts = tiered milestones, rings = progress/streaks, stamps = one-offs and records. */
+function BadgeGraphic({ T, track, tier, value }) {
+  const locked = tier === 0;
+  const next = track.tiers[tier];
+  const prev = tier > 0 ? track.tiers[tier - 1] : 0;
+  const pct = next == null ? 1 : Math.max(0, Math.min(1, (value - prev) / (next - prev)));
+  const mono = "'IBM Plex Mono', monospace";
+  const dash = locked ? "4 3" : undefined;
+  if (track.style === "belt") {
+    return (
+      <svg width="120" height="30" viewBox="0 0 120 30" style={{ display: "block" }}>
+        <rect x="1" y="3" width="118" height="24" fill={locked ? "none" : T.fg} stroke={locked ? T.rule : "none"} strokeWidth="1" strokeDasharray={dash} />
+        <rect x="68" y="3" width="51" height="24" fill={locked ? "none" : T.accent} stroke={locked ? T.rule : "none"} strokeWidth="1" strokeDasharray={dash} />
+        {Array.from({ length: tier }).map((_, i) => <rect key={i} x={74 + i * 9} y="3" width="4" height="24" fill={T.bg} />)}
+      </svg>
+    );
+  }
+  if (track.style === "ring") {
+    const C = 2 * Math.PI * 30;
+    return (
+      <svg width="76" height="76" viewBox="0 0 76 76" style={{ display: "block" }}>
+        <circle cx="38" cy="38" r="30" fill="none" stroke={T.rule} strokeWidth="4" />
+        <circle cx="38" cy="38" r="30" fill="none" stroke={tier > 0 && next == null ? T.accent : T.fg} strokeWidth="4" strokeDasharray={`${(pct * C).toFixed(1)} ${C.toFixed(1)}`} transform="rotate(-90 38 38)" />
+        <text x="38" y="43" textAnchor="middle" fontFamily={mono} fontSize="16" fontWeight="600" fill={locked ? T.muted : T.fg}>{Math.floor(value)}</text>
+      </svg>
+    );
+  }
+  const fill = locked ? "none" : track.accent ? T.accent : T.fg;
+  return (
+    <svg width="64" height="64" viewBox="0 0 64 64" style={{ display: "block" }}>
+      <rect x="1" y="1" width="62" height="62" fill={fill} stroke={locked ? T.rule : "none"} strokeWidth="1" strokeDasharray={dash} />
+      {!locked && <rect x="6" y="6" width="52" height="52" fill="none" stroke={T.bg} strokeWidth="1" />}
+      <text x="32" y={track.tiers.length > 1 ? 36 : 40} textAnchor="middle" fontFamily={mono} fontSize={track.glyph.length > 2 ? 17 : 22} fontWeight="600" fill={locked ? T.rule : T.bg}>{track.glyph}</text>
+      {track.tiers.length > 1 && Array.from({ length: tier }).map((_, i) => <rect key={i} x={32 - (tier * 8 - 2) / 2 + i * 8} y="46" width="6" height="3" fill={T.bg} />)}
+    </svg>
+  );
+}
+function BadgeTile({ T, state, data }) {
+  const { track, value, tier } = state;
+  const locked = tier === 0;
+  const next = track.tiers[tier];
+  const single = track.tiers.length === 1;
+  const line1 = single ? tr(track.desc) : locked ? `${tr("First")}: ${badgeTierLabel(track, 1)}` : badgeTierLabel(track, tier);
+  const line2 = single ? tr(locked ? "LOCKED" : "UNLOCKED") : next != null ? `${Math.floor(value).toLocaleString()} / ${next.toLocaleString()}` : tr("MAX TIER");
+  return (
+    <div style={{ border: `1px solid ${T.rule}`, padding: "14px 8px 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 10, textAlign: "center" }}>
+      <div style={{ height: 76, display: "flex", alignItems: "center", justifyContent: "center" }}><BadgeGraphic T={T} track={track} tier={tier} value={value} /></div>
+      <div>
+        <div style={{ font: "600 12px/1.2 Archivo, sans-serif", textTransform: "uppercase", color: locked ? T.muted : T.fg }}>{tr(track.title)}</div>
+        <div className="fl-mono" style={{ fontSize: 10, color: locked ? T.muted : T.body, marginTop: 5, lineHeight: 1.35 }}>{line1}</div>
+        <div className="fl-mono" style={{ fontSize: 9.5, color: T.muted, marginTop: 3 }}>{line2}{track.note ? ` · ${track.note(data)}` : ""}</div>
+      </div>
+    </div>
+  );
+}
+function BadgesSection({ T, sessions, prs, fights, goals }) {
+  const [open, setOpen] = useState(false);
+  const data = useMemo(() => computeBadgeData(sessions, prs, fights, goals), [sessions, prs, fights, goals]);
+  const states = useMemo(() => computeBadgeStates(data), [data]);
+  const unlocked = states.filter((s) => s.tier > 0).length;
+  return (
+    <div style={{ border: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>{tr("Badges")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{unlocked} / {states.length}</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px", display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          {states.map((st) => <BadgeTile key={st.track.key} T={T} state={st} data={data} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FocusSection({ T, sessions, focusTopics, focusTerms, addFocusTerm, removeFocusTerm, resolveFocus }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const suggestions = useMemo(() => suggestFocusTerms(sessions, focusTerms), [sessions, focusTerms]);
+  const submit = () => { if (term.trim().length >= 2) { addFocusTerm(term); setTerm(""); } };
+  return (
+    <div style={{ border: `1px solid ${T.rule}` }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>{tr("Focus areas")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="fl-mono" style={{ fontSize: 12, color: focusTopics.some((t) => t.status === "focus") ? T.accent : T.fg }}>{focusTopics.length} {tr("topics")}</span>
+          <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 16px" }}>
+          {focusTopics.length === 0
+            ? <Empty T={T} title="No recurring weak spots yet" body="A topic shows up here once it comes back under “Fix next time” in 3 sessions within 8 weeks." />
+            : focusTopics.map((t) => {
+                const improving = t.status === "improving";
+                return (
+                  <div key={t.key} style={{ border: `1px solid ${T.rule}`, padding: 12, marginTop: 8 }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ font: "600 14px/1.2 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{focusLabel(t.topic)}</div>
+                      <span className="fl-mono" style={{ flex: "none", fontSize: 9, fontWeight: 600, padding: "3px 6px", background: improving ? T.winBg : T.lossBg, color: improving ? T.win : T.loss }}>{tr(improving ? "IMPROVING" : "NEEDS FOCUS")}</span>
+                    </div>
+                    <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 7, lineHeight: 1.5 }}>
+                      {t.problem}× {tr("to fix in the last 8 weeks")} · {tr("last")} {daysAgoLabel(t.lastProblem)}
+                      {t.good > 0 && <><br />{t.good}× {tr("went well")}{t.lastGood ? ` · ${tr("last")} ${daysAgoLabel(t.lastGood)}` : ""}</>}
+                    </div>
+                    <button onClick={() => resolveFocus(t.key)} className="fl-mono" style={{
+                      marginTop: 10, background: "transparent", border: `1px solid ${T.rule}`, color: T.muted, borderRadius: 0, padding: "8px 10px", fontSize: 9.5, letterSpacing: "0.1em"
+                    }}>✓ {tr("MARK RESOLVED")}</button>
+                  </div>
+                );
+              })}
+
+          {suggestions.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <Label T={T}>Suggestions</Label>
+              <div style={{ fontSize: 12, color: T.body, marginTop: 6, lineHeight: 1.4 }}>{tr("Words that keep coming back under “Fix next time”. Tap one to track it.")}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {suggestions.map((w) => (
+                  <button key={w} onClick={() => addFocusTerm(w)} className="fl-mono" style={{ border: `1px dashed ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0, padding: "7px 10px", fontSize: 11 }}>+ {w}</button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop: 16 }}>
+            <Label T={T}>Your own terms</Label>
+            <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+              <div style={{ flex: 1 }}>
+                <Input T={T} placeholder="Add a term, e.g. kimura or footwork" value={term} onChange={(e) => setTerm(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submit(); }} />
+              </div>
+              <button onClick={submit} style={{ width: 52, flex: "none", border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 22, borderRadius: 0 }}>+</button>
+            </div>
+            {focusTerms.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                {focusTerms.map((w) => (
+                  <span key={w} className="fl-mono" style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${T.rule}`, color: T.fg, padding: "6px 8px", fontSize: 11 }}>
+                    {w}<button onClick={() => removeFocusTerm(w)} style={{ background: "none", border: "none", color: T.muted, padding: 0, fontSize: 13, lineHeight: 1 }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, addFight, deleteFight, bodyweight, addBodyweight, deleteBodyweight, goals, addGoal, deleteGoal, toggleGoalDone, onImport, exerciseNames, focusTopics, focusTerms, focusResolved, addFocusTerm, removeFocusTerm, resolveFocus }) {
   const [minutesRange, setMinutesRange] = useState("week");
   const [chartType, setChartType] = useState("bar");
   const [combatOnly, setCombatOnly] = useState(false);
@@ -2379,7 +2745,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
   const [pending, setPending] = useState(null);
   const [error, setError] = useState("");
   const doExport = () => {
-    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans, prs, fights, bodyweight, goals };
+    const payload = { app: "fight-log", version: 1, exportedAt: new Date().toISOString(), sessions, events, plans, prs, fights, bodyweight, goals, focusTerms, focusResolved };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url; a.download = `fight-log-backup-${todayISO()}.json`;
@@ -2497,6 +2863,14 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
       </div>
 
       <div style={{ marginTop: 14 }}>
+        <FocusSection T={T} sessions={sessions} focusTopics={focusTopics} focusTerms={focusTerms} addFocusTerm={addFocusTerm} removeFocusTerm={removeFocusTerm} resolveFocus={resolveFocus} />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <BadgesSection T={T} sessions={sessions} prs={prs} fights={fights} goals={goals} />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
         <FightRecordSection T={T} fights={fights} addFight={addFight} deleteFight={deleteFight} />
       </div>
 
@@ -2544,7 +2918,9 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
                   prs: Array.isArray(pending.prs) ? pending.prs : [],
                   fights: Array.isArray(pending.fights) ? pending.fights : [],
                   bodyweight: Array.isArray(pending.bodyweight) ? pending.bodyweight : [],
-                  goals: Array.isArray(pending.goals) ? pending.goals : []
+                  goals: Array.isArray(pending.goals) ? pending.goals : [],
+                  focusTerms: Array.isArray(pending.focusTerms) ? pending.focusTerms : [],
+                  focusResolved: pending.focusResolved && typeof pending.focusResolved === "object" ? pending.focusResolved : {}
                 });
                 setPending(null);
               }} style={{ width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>{tr("Replace")}</button></div>
@@ -2578,9 +2954,12 @@ function App() {
   const [bodyweight, setBodyweight] = useState([]);
   const [goals, setGoals] = useState([]);
   const [lang, setLang] = useState("en");
+  const [focusTerms, setFocusTerms] = useState([]);
+  const [focusResolved, setFocusResolved] = useState({});
   LANG = lang; // read by tr()/locale() in every component rendered below this one
   const T = THEMES[theme] || THEMES.light;
   const exerciseNames = useMemo(() => collectKnownExerciseNames(sessions, plans), [sessions, plans]);
+  const focusTopics = useMemo(() => computeFocusTopics(sessions, focusTerms, focusResolved), [sessions, focusTerms, focusResolved, lang]);
 
   useEffect(() => {
     let on = true;
@@ -2591,6 +2970,7 @@ function App() {
       loadKey("sessions", setSessions), loadKey("events", setEvents),
       loadKey("plans", setPlans), loadKey("prs", setPrs), loadKey("fights", setFights),
       loadKey("bodyweight", setBodyweight), loadKey("goals", setGoals),
+      loadKey("focusTerms", setFocusTerms), loadKey("focusResolved", setFocusResolved),
       loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true),
       loadKey("lang", (v) => setLang(v === "de" ? "de" : "en"), true)
     ]).finally(() => { if (on) setLoading(false); });
@@ -2673,7 +3053,15 @@ function App() {
   const addGoal = (g) => persist("goals", [g, ...goals], setGoals);
   const deleteGoal = (id) => persist("goals", goals.filter((g) => g.id !== id), setGoals);
   const toggleGoalDone = (id) => persist("goals", goals.map((g) => (g.id === id ? { ...g, done: !g.done } : g)), setGoals);
+  const addFocusTerm = (raw) => {
+    const t = String(raw || "").trim().toLowerCase();
+    if (t.length < 2 || focusTerms.includes(t)) return;
+    persist("focusTerms", [...focusTerms, t], setFocusTerms);
+  };
+  const removeFocusTerm = (t) => persist("focusTerms", focusTerms.filter((x) => x !== t), setFocusTerms);
+  const resolveFocus = (key) => persist("focusResolved", { ...focusResolved, [key]: todayISO() }, setFocusResolved);
   const importAll = (d) => {
+    persist("focusTerms", d.focusTerms || [], setFocusTerms); persist("focusResolved", d.focusResolved || {}, setFocusResolved);
     persist("sessions", d.sessions, setSessions); persist("events", d.events, setEvents); persist("plans", d.plans, setPlans);
     persist("prs", d.prs || [], setPrs); persist("fights", d.fights || [], setFights);
     persist("bodyweight", d.bodyweight || [], setBodyweight);
@@ -2711,10 +3099,10 @@ function App() {
             </div>
           ) : (
             <div style={{ marginTop: tab === "log" ? 0 : 10 }}>
-              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} updateSession={updateSession} deleteSession={deleteSession} plans={plans} exerciseNames={exerciseNames} />}
+              {tab === "log" && <LogView T={T} sessions={sessions} addSession={addSession} updateSession={updateSession} deleteSession={deleteSession} plans={plans} exerciseNames={exerciseNames} prs={prs} fights={fights} goals={goals} focusTopics={focusTopics} />}
               {tab === "calendar" && <CalendarView T={T} events={events} addEvent={addEvent} deleteEvent={deleteEvent} />}
               {tab === "strength" && <StrengthView T={T} plans={plans} addPlan={addPlan} addPlans={addPlans} deletePlan={deletePlan} renamePlan={renamePlan} exerciseNames={exerciseNames} />}
-              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} bodyweight={bodyweight} addBodyweight={addBodyweight} deleteBodyweight={deleteBodyweight} goals={goals} addGoal={addGoal} deleteGoal={deleteGoal} toggleGoalDone={toggleGoalDone} onImport={importAll} exerciseNames={exerciseNames} />}
+              {tab === "stats" && <StatsView T={T} sessions={sessions} events={events} plans={plans} prs={prs} addPR={addPR} deletePR={deletePR} fights={fights} addFight={addFight} deleteFight={deleteFight} bodyweight={bodyweight} addBodyweight={addBodyweight} deleteBodyweight={deleteBodyweight} goals={goals} addGoal={addGoal} deleteGoal={deleteGoal} toggleGoalDone={toggleGoalDone} onImport={importAll} exerciseNames={exerciseNames} focusTopics={focusTopics} focusTerms={focusTerms} focusResolved={focusResolved} addFocusTerm={addFocusTerm} removeFocusTerm={removeFocusTerm} resolveFocus={resolveFocus} />}
             </div>
           )}
         </main>
