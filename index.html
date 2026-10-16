@@ -115,6 +115,118 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
+/* ---------- language ----------
+   English is the source language: every UI string is written in English in the code and
+   looked up in the DE dictionary (bottom of this block) at render time. `LANG` is a plain
+   module variable that App assigns on every render, so every component below it renders
+   in the active language without threading a prop through the whole tree. Strings that
+   aren't in the dictionary (user-entered names, exercise names, ...) pass through as-is. */
+let LANG = "en";
+const locale = () => (LANG === "de" ? "de-DE" : "en-GB");
+const tr = (s) => (LANG === "de" && typeof s === "string" && DE[s] !== undefined ? DE[s] : s);
+/* Translate a React children value: strings (keeping surrounding whitespace) and arrays of them. */
+const trNode = (c) => {
+  if (typeof c === "string") {
+    const m = c.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    return m[1] + tr(m[2]) + m[3];
+  }
+  if (Array.isArray(c)) return React.Children.map(c, (x) => (typeof x === "string" ? trNode(x) : x));
+  return c;
+};
+
+/* Rep schemes from the generator contain words ("To failure", "8/side", "5/leg", ...). */
+const trReps = (r) => {
+  if (LANG !== "de" || typeof r !== "string") return r;
+  return r.replace("To failure", "Bis Muskelversagen").replace(/\/leg\b/g, "/Bein").replace(/\/side\b/g, "/Seite")
+    .replace("max effort", "max. Einsatz").replace("easy", "locker").replace("hard-controlled", "hart-kontrolliert")
+    .replace(/(\d+) min\b/g, "$1 Min");
+};
+
+const DE = {
+  // navigation / header
+  "CAL": "KAL", "Calendar": "Kalender", "Strength & cond.": "Kraft & Kondition", "Statistics": "Statistik",
+  "TRAINING RECORD": "TRAININGSLOG", "SCHEDULE": "TERMINE", "PLAN GENERATOR": "PLAN-GENERATOR", "TRAINING STATS": "TRAININGSSTATISTIK",
+  "DARK": "DUNKEL", "LIGHT": "HELL", "LOADING": "LÄDT",
+  // disciplines / event types / generator options
+  "Striking": "Striking", "Boxing": "Boxen", "Wrestling": "Ringen", "Strength": "Kraft", "Endurance": "Ausdauer", "Mobility": "Mobilität", "Other": "Sonstiges",
+  "Seminar": "Seminar", "Tournament": "Turnier", "Competition": "Wettkampf",
+  "Max Strength": "Maximalkraft", "Hypertrophy": "Hypertrophie", "Power": "Explosivkraft", "Strength-Endurance": "Kraftausdauer",
+  "Bodyweight": "Körpergewicht", "Home Gym": "Heim-Gym", "Full Gym": "Voll ausgestattetes Gym",
+  "Beginner": "Anfänger", "Intermediate": "Fortgeschritten", "Advanced": "Experte",
+  "Running": "Laufen", "Bike": "Fahrrad",
+  "Intervals": "Intervalle", "Steady Run": "Dauerlauf", "Tempo Run": "Tempolauf", "Long Run": "Langer Lauf", "Rower": "Rudergerät", "Swim": "Schwimmen",
+  "Upper": "Oberkörper", "Lower": "Unterkörper", "Full Body": "Ganzkörper", "Full Body A": "Ganzkörper A", "Full Body B": "Ganzkörper B",
+  "Upper A": "Oberkörper A", "Lower A": "Unterkörper A", "Upper B": "Oberkörper B", "Lower B": "Unterkörper B",
+  "Anaerobic Capacity": "Anaerobe Kapazität", "Anaerobic Capacity 2": "Anaerobe Kapazität 2",
+  "Anaerobic Threshold": "Anaerobe Schwelle", "Anaerobic Threshold 2": "Anaerobe Schwelle 2",
+  // fights
+  "MMA (Pro)": "MMA (Profi)", "K1 / Muay Thai (Pro)": "K1 / Muay Thai (Profi)", "Boxing (Pro)": "Boxen (Profi)", "Boxing (Amateur)": "Boxen (Amateur)",
+  "Submission": "Aufgabe", "Decision": "Punktentscheid", "DQ": "Disqualifikation", "Points": "Punkte",
+  "Fight Record": "Kampfbilanz", "No fights logged yet": "Noch keine Kämpfe geloggt",
+  "Add your first result using the button below.": "Füge dein erstes Ergebnis mit dem Button unten hinzu.",
+  "Add result": "Ergebnis hinzufügen", "Which discipline?": "Welche Disziplin?", "Result": "Ergebnis", "Method": "Methode",
+  "Opponent (optional)": "Gegner (optional)", "Name": "Name", "Notes (optional)": "Notizen (optional)", "Event, details …": "Event, Details …",
+  "Save result": "Ergebnis speichern", "NO WINS YET": "NOCH KEINE SIEGE", "Pick a result and a method.": "Wähle ein Ergebnis und eine Methode.",
+  // goals
+  "Goals": "Ziele", "active": "aktiv", "Any": "Beliebig", "WEEKLY": "WÖCHENTLICH", "MONTHLY": "MONATLICH", "LIFE": "LEBENSZIEL",
+  "No weekly goals yet": "Noch keine Wochenziele", "No monthly goals yet": "Noch keine Monatsziele", "No life goals yet": "Noch keine Lebensziele",
+  "Add a habit to track through the week.": "Füge eine Gewohnheit hinzu, die du über die Woche verfolgen willst.",
+  "Set a target for this month.": "Setze ein Ziel für diesen Monat.", "The big, long-term ones.": "Die großen, langfristigen Ziele.",
+  "Add weekly goal": "Wochenziel hinzufügen", "Add monthly goal": "Monatsziel hinzufügen", "Add life goal": "Lebensziel hinzufügen",
+  "Goal": "Ziel", "Target sessions / week": "Ziel-Sessions / Woche", "Target count (optional)": "Zielanzahl (optional)", "Counts": "Zählt",
+  "e.g. Train 4x this week": "z.B. 4x diese Woche trainieren", "e.g. Log 16 sessions": "z.B. 16 Sessions loggen",
+  "e.g. Earn BJJ black belt": "z.B. BJJ-Schwarzgurt erreichen", "Leave blank for a simple checkbox": "Leer lassen für eine einfache Checkbox",
+  "this week": "diese Woche", "MANUAL": "MANUELL", "Save": "Speichern", "Cancel": "Abbrechen",
+  // PRs / bodyweight
+  "Personal Records": "Persönliche Rekorde", "tracked": "erfasst", "No PRs yet": "Noch keine PRs", "Log your current best lifts.": "Trage deine aktuellen Bestleistungen ein.",
+  "Add PR": "PR hinzufügen", "Exercise": "Übung", "e.g. Deadlift": "z.B. Kreuzheben", "Weight (kg)": "Gewicht (kg)", "Date": "Datum",
+  "ENTRY": "EINTRAG", "ENTRIES": "EINTRÄGE", "SINCE": "SEIT", "since": "seit", "No entries yet": "Noch keine Einträge",
+  "No bodyweight logged yet": "Noch kein Körpergewicht erfasst", "Track your weight to see trends over time.": "Tracke dein Gewicht, um Trends über die Zeit zu sehen.",
+  "Log weight": "Gewicht loggen",
+  // log
+  "Log session": "Session loggen", "THIS WEEK": "DIESE WOCHE", "MOST LOGGED": "AM HÄUFIGSTEN", "All": "Alle", "No sessions yet": "Noch keine Sessions",
+  "Log the session you just finished — discipline, minutes, notes. Notes are optional.": "Logge die Session, die du gerade beendet hast — Disziplin, Minuten, Notizen. Notizen sind optional.",
+  "New session": "Neue Session", "Edit session": "Session bearbeiten", "Repeat": "Wiederholen", "Discipline": "Disziplin",
+  "TODAY": "HEUTE", "YESTERDAY": "GESTERN", "Duration": "Dauer", "Intensity": "Intensität", "INT": "INT",
+  "What you worked on": "Woran du gearbeitet hast", "What you drilled": "Was du trainiert hast",
+  "Hips, ankles, thoracic spine, hamstrings": "Hüfte, Sprunggelenke, Brustwirbelsäule, Beinbeuger",
+  "Underhook chains, snap downs, 5 live goes": "Underhook-Ketten, Snap Downs, 5 Live-Runden",
+  "Went well": "Lief gut", "What worked?": "Was hat funktioniert?", "Fix next time": "Nächstes Mal verbessern", "What needs work?": "Woran muss gearbeitet werden?",
+  "Save session": "Session speichern", "EDIT": "BEARBEITEN", "DELETE": "LÖSCHEN", "Photos / Videos": "Fotos / Videos",
+  "Rest timer": "Pausentimer", "START": "START", "STOP": "STOPP", "RESET": "ZURÜCKSETZEN", "DICTATE": "DIKTIEREN", "LISTENING…": "HÖRT ZU…",
+  "Use a saved plan": "Gespeicherten Plan nutzen", "Add exercise": "Übung hinzufügen", "Exercise name": "Name der Übung",
+  "TARGET": "ZIEL", "LAST TIME": "ZULETZT", "WEIGHT": "GEWICHT", "ADDED WEIGHT": "ZUSATZGEWICHT", "REPS": "WDH", "TIME": "ZEIT",
+  "optional": "optional", "reps": "Wdh", "e.g. 45s": "z.B. 45s", "+ Add set": "+ Satz hinzufügen", "Set": "Satz", "Set type": "Satztyp",
+  "Note for this set": "Notiz zu diesem Satz", "e.g. shoulder felt off, explosive": "z.B. Schulter zwickt, explosiv", "No sets logged": "Keine Sätze geloggt",
+  "Working": "Arbeitssatz", "Warm-up": "Aufwärmsatz", "Drop set": "Drop-Satz", "Failure": "Muskelversagen", "Rest-pause": "Rest-Pause", "Back-off": "Back-off",
+  "Type": "Typ", "Distance (m)": "Distanz (m)", "Notes": "Notizen", "e.g. 8×400m @ 90s pace, 2min rest between reps": "z.B. 8×400m @ 90s Pace, 2 Min Pause",
+  "SESSION LOGGED SUCCESSFULLY": "SESSION ERFOLGREICH GELOGGT", "MINUTES": "MINUTEN", "INTENSITY": "INTENSITÄT", "KG VOLUME": "KG VOLUMEN",
+  "volume vs last time on shared exercises": "Volumen ggü. letztem Mal bei gleichen Übungen",
+  "No prior sessions with these exercises yet": "Noch keine früheren Sessions mit diesen Übungen", "Done": "Fertig",
+  // calendar
+  "Title": "Titel", "Time": "Zeit", "Place": "Ort", "Sparring camp, regional open …": "Sparring-Camp, regionales Turnier …", "Gym / hall": "Gym / Halle",
+  "Weight class, contact, details": "Gewichtsklasse, Kontakt, Details", "Nothing scheduled": "Nichts geplant",
+  "Add training, a seminar, a tournament or a fight for this day.": "Füge Training, Seminar, Turnier oder Kampf für diesen Tag hinzu.",
+  "New event": "Neues Event", "Upcoming": "Demnächst",
+  // S&C
+  "Build your own": "Eigenen Plan bauen", "Sets": "Sätze", "Reps": "Wdh", "Plan name": "Planname", "Save plan": "Plan speichern",
+  "STRENGTH": "KRAFT", "ENDURANCE": "AUSDAUER", "Sessions / week": "Sessions / Woche", "Equipment": "Ausrüstung", "Familiarity": "Erfahrung",
+  "Generate program": "Programm generieren", "Saved plans": "Gespeicherte Pläne", "No plans yet": "Noch keine Pläne",
+  "Generate one above or build your own.": "Generiere oben einen oder baue deinen eigenen.", "Weekly program": "Wochenprogramm",
+  "CIRCUIT · REST AFTER EACH ROUND": "CIRCUIT · PAUSE NACH JEDER RUNDE", "Program name": "Programmname", "Discard": "Verwerfen",
+  "Save program": "Programm speichern", "EXERCISES": "ÜBUNGEN", "x/week": "x/Woche", "Program": "Programm",
+  // stats
+  "WK": "WO", "YR": "J", "LINE": "LINIE", "BARS": "BALKEN", "ALL": "ALLE", "COMBAT ONLY": "NUR KAMPFSPORT", "WEEK": "WOCHE", "MONTH": "MONAT", "YEAR": "JAHR",
+  "Split by discipline": "Aufteilung nach Disziplin", "No sessions logged yet.": "Noch keine Sessions geloggt.", "Sessions": "Sessions",
+  "Total time": "Gesamtzeit", "Avg session": "Ø Session", "Avg intensity": "Ø Intensität", "Frequency": "Häufigkeit", "Last trained": "Zuletzt trainiert",
+  "Weekly Recap": "Wochenrückblick", "sessions": "Sessions", "No sessions logged this week yet.": "Diese Woche noch keine Sessions geloggt.",
+  "Minutes trained": "Trainierte Minuten", "Most trained": "Am meisten trainiert", "Strength volume": "Kraft-Volumen",
+  "Your data lives on this device only. Export a file regularly or move it to another phone.": "Deine Daten liegen nur auf diesem Gerät. Exportiere regelmäßig eine Datei oder übertrage sie auf ein anderes Handy.",
+  "Could not read that file. Is it a Fight Log backup?": "Datei konnte nicht gelesen werden. Ist es ein Fight-Log-Backup?",
+  "Found:": "Gefunden:", "events": "Events", "plans": "Pläne", "Importing replaces everything on this device.": "Beim Import wird alles auf diesem Gerät ersetzt.",
+  "Replace": "Ersetzen"
+};
+
 /* ---------- theme ---------- */
 const THEMES = {
   light: { bg: "#f4f2ec", fg: "#12100e", rule: "#cdc8bd", muted: "#6b665d", body: "#4a463f", accent: "#c8342b",
@@ -318,9 +430,9 @@ function buildEnduranceWeek(sessionsPerWeek, equipment, familiarity) {
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayISO = () => toISO(new Date());
 const yesterdayISO = () => { const d = new Date(); d.setDate(d.getDate() - 1); return toISO(d); };
-const fmtDayShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short" }).toUpperCase();
-const fmtDateShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
-const fmtLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "long" });
+const fmtDayShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString(locale(), { weekday: "short" }).replace(/\./g, "").toUpperCase();
+const fmtDateShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString(locale(), { day: "2-digit", month: "short" }).replace(/\./g, "").toUpperCase();
+const fmtLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString(locale(), { weekday: "short", day: "2-digit", month: "long" });
 function startOfWeekDate(d) { const day = (d.getDay() + 6) % 7; const s = new Date(d); s.setDate(d.getDate() - day); s.setHours(0, 0, 0, 0); return s; }
 const startOfWeekISO = () => toISO(startOfWeekDate(new Date()));
 function buildLastNWeeks(n) {
@@ -328,7 +440,7 @@ function buildLastNWeeks(n) {
   for (let i = n - 1; i >= 0; i--) {
     const s = new Date(cur); s.setDate(cur.getDate() - i * 7);
     const e = new Date(s); e.setDate(s.getDate() + 6);
-    out.push({ startISO: toISO(s), endISO: toISO(e), label: s.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" }) });
+    out.push({ startISO: toISO(s), endISO: toISO(e), label: s.toLocaleDateString(locale(), { day: "2-digit", month: "2-digit" }) });
   }
   return out;
 }
@@ -343,12 +455,16 @@ function getMonthMatrix(year, month) {
   while (cells.length % 7 !== 0) { const l = cells[cells.length - 1].date; const n = new Date(l); n.setDate(l.getDate() + 1); cells.push({ date: n, current: false }); }
   return cells;
 }
-const WEEKDAYS = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS_EN = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+const WEEKDAYS_DE = ["MO", "DI", "MI", "DO", "FR", "SA", "SO"];
+const MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS_DE = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+const weekdays = () => (LANG === "de" ? WEEKDAYS_DE : WEEKDAYS_EN);
+const monthName = (i) => (LANG === "de" ? MONTHS_DE : MONTHS_EN)[i];
 
 /* ---------- goals ---------- */
 const GOAL_DISCIPLINE_OPTIONS = [{ key: "any", label: "Any" }, ...DISCIPLINES];
-const getGoalDisciplineLabel = (k) => (GOAL_DISCIPLINE_OPTIONS.find((d) => d.key === k) || GOAL_DISCIPLINE_OPTIONS[0]).label;
+const getGoalDisciplineLabel = (k) => tr((GOAL_DISCIPLINE_OPTIONS.find((d) => d.key === k) || GOAL_DISCIPLINE_OPTIONS[0]).label);
 const matchesGoalDiscipline = (session, filter) => filter === "any" || session.discipline === filter;
 function goalWeekProgress(sessions, disciplineFilter) {
   const start = startOfWeekDate(new Date());
@@ -378,11 +494,28 @@ function findExerciseHistory(sessions, exerciseName) {
   });
   return best;
 }
+/* Set types. A set with no `kind` is a normal working set; the others are tagged so they can
+   be shown with a badge and — for warm-ups — kept out of the training-volume numbers. */
+const SET_KINDS = [
+  { key: "normal", badge: null, label: "Working" },
+  { key: "warmup", badge: "W", label: "Warm-up" },
+  { key: "drop", badge: "D", label: "Drop set" },
+  { key: "failure", badge: "F", label: "Failure" },
+  { key: "restpause", badge: "R", label: "Rest-pause" },
+  { key: "backoff", badge: "B", label: "Back-off" }
+];
+const getSetKind = (k) => SET_KINDS.find((x) => x.key === k) || SET_KINDS[0];
+function fmtSet(s, type) {
+  if (type === "hold") return s.reps || "–";
+  if (type === "bodyweight") return `${s.weight ? "+" + s.weight + "kg" : "BW"}×${s.reps || "–"}`;
+  return `${s.weight || "–"}${s.weight ? "kg" : ""}×${s.reps || "–"}`;
+}
+/* "Last time" summary: warm-ups are left out (they're not what you'd want to beat), other
+   special set types get their badge letter so a drop set doesn't read like a normal one. */
 function fmtSets(sets, type) {
-  return sets.filter((s) => s.weight || s.reps).map((s) => {
-    if (type === "hold") return s.reps || "–";
-    if (type === "bodyweight") return `${s.weight ? "+" + s.weight + "kg" : "BW"}×${s.reps || "–"}`;
-    return `${s.weight || "–"}${s.weight ? "kg" : ""}×${s.reps || "–"}`;
+  return sets.filter((s) => (s.weight || s.reps) && s.kind !== "warmup").map((s) => {
+    const badge = getSetKind(s.kind).badge;
+    return (badge ? badge + " " : "") + fmtSet(s, type);
   }).join(", ");
 }
 
@@ -434,8 +567,10 @@ const INTENSITY_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const supportsIntensity = (discipline) => discipline !== "strength" && discipline !== "mobility";
 
 /* ---------- training volume ---------- */
+/* Warm-up sets don't count towards volume — they'd inflate the number with load that
+   was never meant to be a training stimulus (and skew the vs-last-time comparison). */
 function computeExerciseVolume(sets) {
-  return (sets || []).reduce((sum, s) => sum + (parseFloat(s.weight) || 0) * (parseFloat(s.reps) || 0), 0);
+  return (sets || []).reduce((sum, s) => (s.kind === "warmup" ? sum : sum + (parseFloat(s.weight) || 0) * (parseFloat(s.reps) || 0)), 0);
 }
 function computeSessionVolume(session) {
   if (!session || !session.exerciseLog) return 0;
@@ -501,7 +636,7 @@ function buildMinutesBuckets(sessions, range) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       out.push({
-        key: ym, label: MONTHS[d.getMonth()].slice(0, 3).toUpperCase(),
+        key: ym, label: monthName(d.getMonth()).slice(0, 3).toUpperCase(),
         minutes: sessions.filter((s) => s.date.startsWith(ym)).reduce((sum, s) => sum + (Number(s.duration) || 0), 0)
       });
     }
@@ -521,7 +656,7 @@ function buildMinutesBuckets(sessions, range) {
 
 /* ---------- primitives ---------- */
 function Label({ T, children }) {
-  return <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, textTransform: "uppercase" }}>{children}</div>;
+  return <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, textTransform: "uppercase" }}>{trNode(children)}</div>;
 }
 function Chip({ T, active, onClick, children, grow }) {
   return (
@@ -529,7 +664,7 @@ function Chip({ T, active, onClick, children, grow }) {
       border: `1px solid ${T.fg}`, background: active ? T.fg : "transparent", color: active ? T.bg : T.fg,
       font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.06em", textTransform: "uppercase",
       padding: "13px 12px", flex: grow ? 1 : "none", whiteSpace: "nowrap", borderRadius: 0
-    }}>{children}</button>
+    }}>{trNode(children)}</button>
   );
 }
 function SmallChip({ T, active, onClick, children }) {
@@ -537,7 +672,7 @@ function SmallChip({ T, active, onClick, children }) {
     <button onClick={onClick} className="fl-mono" style={{
       flex: 1, border: `1px solid ${active ? T.fg : T.rule}`, background: active ? T.fg : "transparent",
       color: active ? T.bg : T.fg, fontSize: 10, padding: "11px 0", borderRadius: 0
-    }}>{children}</button>
+    }}>{trNode(children)}</button>
   );
 }
 function Primary({ T, onClick, children, type }) {
@@ -546,7 +681,7 @@ function Primary({ T, onClick, children, type }) {
       width: "100%", background: T.fg, color: T.bg, border: "none", borderRadius: 0, height: 56,
       display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
       font: "600 13px/1 Archivo, sans-serif", letterSpacing: "0.14em", textTransform: "uppercase"
-    }}>{children}</button>
+    }}>{trNode(children)}</button>
   );
 }
 function Ghost({ T, onClick, children }) {
@@ -555,18 +690,18 @@ function Ghost({ T, onClick, children }) {
       flex: 1, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0, height: 52,
       display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
       font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase"
-    }}>{children}</button>
+    }}>{trNode(children)}</button>
   );
 }
 function Input({ T, style, ...rest }) {
-  return <input {...rest} style={{
+  return <input {...rest} placeholder={tr(rest.placeholder)} style={{
     width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
     border: `1px solid ${T.rule}`, borderRadius: 0, padding: "13px 12px", fontSize: 15, outline: "none",
     colorScheme: T.bg === "#0e0d0c" ? "dark" : "light", ...style
   }} />;
 }
 function Area({ T, ...rest }) {
-  return <textarea {...rest} style={{
+  return <textarea {...rest} placeholder={tr(rest.placeholder)} style={{
     width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
     border: `1px solid ${T.rule}`, borderRadius: 0, padding: "11px 12px", fontSize: 15, outline: "none", resize: "none"
   }} />;
@@ -574,8 +709,8 @@ function Area({ T, ...rest }) {
 function Empty({ T, title, body }) {
   return (
     <div style={{ border: `1px solid ${T.rule}`, padding: "26px 18px" }}>
-      <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{title}</div>
-      <div style={{ fontSize: 13, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>{body}</div>
+      <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(title)}</div>
+      <div style={{ fontSize: 13, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>{tr(body)}</div>
     </div>
   );
 }
@@ -590,7 +725,7 @@ function DictateButton({ T, onResult }) {
   const toggle = () => {
     if (listening) { if (recRef.current) recRef.current.stop(); return; }
     const rec = new SR();
-    rec.lang = navigator.language || "en-US";
+    rec.lang = LANG === "de" ? "de-DE" : (navigator.language || "en-US");
     rec.interimResults = false;
     rec.continuous = false;
     rec.onresult = (e) => { const text = Array.from(e.results).map((r) => r[0].transcript).join(" ").trim(); if (text) onResult(text); };
@@ -605,7 +740,7 @@ function DictateButton({ T, onResult }) {
       display: "flex", alignItems: "center", gap: 6, border: `1px solid ${listening ? T.accent : T.rule}`,
       background: "transparent", color: listening ? T.accent : T.muted,
       padding: "5px 9px", fontSize: 9, letterSpacing: "0.08em", borderRadius: 0
-    }}>{listening ? "● LISTENING…" : "🎙 DICTATE"}</button>
+    }}>{listening ? "● " + tr("LISTENING…") : "🎙 " + tr("DICTATE")}</button>
   );
 }
 function NotesField({ T, label, placeholder, value, onChange, rows }) {
@@ -738,11 +873,11 @@ function RestTimer({ T }) {
         <button onClick={toggle} className="fl-mono" style={{
           border: `1px solid ${T.fg}`, background: running ? T.fg : "transparent", color: running ? T.bg : T.fg,
           padding: "12px 18px", fontSize: 11, letterSpacing: "0.1em", borderRadius: 0
-        }}>{running ? "STOP" : "START"}</button>
+        }}>{tr(running ? "STOP" : "START")}</button>
         <button onClick={reset} className="fl-mono" style={{
           border: `1px solid ${T.rule}`, background: "transparent", color: T.muted,
           padding: "12px 14px", fontSize: 11, letterSpacing: "0.1em", borderRadius: 0
-        }}>RESET</button>
+        }}>{tr("RESET")}</button>
       </div>
     </div>
   );
@@ -790,7 +925,7 @@ function ExerciseNameInput({ T, value, onChange, knownNames, placeholder }) {
     : [];
   return (
     <div style={{ position: "relative" }}>
-      <Input T={T} placeholder={placeholder || "Exercise name"} value={value}
+      <Input T={T} placeholder={tr(placeholder || "Exercise name")} value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setTimeout(() => setFocused(false), 150)} />
@@ -811,6 +946,7 @@ function ExerciseNameInput({ T, value, onChange, knownNames, placeholder }) {
 function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
   const [manualName, setManualName] = useState("");
   const [openNote, setOpenNote] = useState(null);
+  const [openKind, setOpenKind] = useState(null);
 
   const usePlan = (plan) => {
     setLog(plan.exercises.map((ex) => ({
@@ -850,18 +986,18 @@ function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
 
       {log.map((ex, i) => {
         const type = inferExerciseType(ex.name);
-        const weightLabel = type === "bodyweight" ? "ADDED WEIGHT" : "WEIGHT";
-        const weightPlaceholder = type === "bodyweight" ? "optional" : "kg";
-        const repsLabel = type === "hold" ? "TIME" : "REPS";
-        const repsPlaceholder = type === "hold" ? "e.g. 45s" : "reps";
+        const weightLabel = tr(type === "bodyweight" ? "ADDED WEIGHT" : "WEIGHT");
+        const weightPlaceholder = tr(type === "bodyweight" ? "optional" : "kg");
+        const repsLabel = tr(type === "hold" ? "TIME" : "REPS");
+        const repsPlaceholder = tr(type === "hold" ? "e.g. 45s" : "reps");
         const hist = findExerciseHistory(sessions || [], ex.name);
         return (
           <div key={i} style={{ marginTop: 14, border: `1px solid ${T.rule}`, padding: 12 }}>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
               <div>
                 <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{ex.name}</div>
-                {ex.target && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>TARGET {ex.target}</div>}
-                {hist && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>LAST TIME ({fmtDateShort(hist.date)}): {fmtSets(hist.sets, type)}</div>}
+                {ex.target && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>{tr("TARGET")} {ex.target}</div>}
+                {hist && <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 5 }}>{tr("LAST TIME")} ({fmtDateShort(hist.date)}): {fmtSets(hist.sets, type)}</div>}
               </div>
               <button onClick={() => removeExercise(i)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="x" size={16} /></button>
             </div>
@@ -875,22 +1011,39 @@ function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
               </div>
               {ex.sets.map((s, si) => {
                 const noteKey = `${i}-${si}`;
+                const kind = getSetKind(s.kind);
                 return (
                   <div key={si}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <div className="fl-mono" style={{ width: 20, fontSize: 12, color: T.muted }}>{si + 1}</div>
+                      <button onClick={() => setOpenKind((k) => (k === noteKey ? null : noteKey))} title={tr("Set type")} className="fl-mono" style={{
+                        width: 20, height: 24, flex: "none", padding: 0, borderRadius: 0, fontSize: 12, cursor: "pointer",
+                        background: kind.badge ? T.fg : "none", border: "none", color: kind.badge ? T.bg : T.muted, fontWeight: kind.badge ? 600 : 400
+                      }}>{kind.badge || si + 1}</button>
                       <div style={{ flex: 1 }}><SetInput T={T} value={s.weight} onChange={(v) => updateSet(i, si, "weight", v)} placeholder={weightPlaceholder} /></div>
                       <div style={{ flex: 1 }}><SetInput T={T} value={s.reps} onChange={(v) => updateSet(i, si, "reps", v)} placeholder={repsPlaceholder} inputMode={type === "hold" ? "text" : "decimal"} /></div>
-                      <button onClick={() => setOpenNote((k) => (k === noteKey ? null : noteKey))} title="Note for this set" style={{
+                      <button onClick={() => setOpenNote((k) => (k === noteKey ? null : noteKey))} title={tr("Note for this set")} style={{
                         width: 24, height: 24, flex: "none", background: "none", border: "none", fontSize: 13,
                         color: s.note ? T.accent : T.muted
                       }}>✎</button>
                       <button onClick={() => removeSet(i, si)} style={{ width: 24, height: 24, flex: "none", background: "none", border: "none", color: T.muted }}>×</button>
                     </div>
+                    {openKind === noteKey && (
+                      <div className="fl-scroll-x" style={{ display: "flex", gap: 5, marginLeft: 28, marginTop: 6 }}>
+                        {SET_KINDS.map((k) => {
+                          const active = (s.kind || "normal") === k.key;
+                          return (
+                            <button key={k.key} onClick={() => { updateSet(i, si, "kind", k.key === "normal" ? "" : k.key); setOpenKind(null); }} className="fl-mono" style={{
+                              flex: "none", border: `1px solid ${active ? T.fg : T.rule}`, background: active ? T.fg : "transparent",
+                              color: active ? T.bg : T.fg, fontSize: 10, padding: "6px 9px", borderRadius: 0, whiteSpace: "nowrap", cursor: "pointer"
+                            }}>{tr(k.label)}</button>
+                          );
+                        })}
+                      </div>
+                    )}
                     {openNote === noteKey && (
                       <div style={{ marginLeft: 28, marginTop: 5 }}>
                         <input value={s.note || ""} onChange={(e) => updateSet(i, si, "note", e.target.value)} autoFocus
-                          placeholder="e.g. shoulder felt off, explosive"
+                          placeholder={tr("e.g. shoulder felt off, explosive")}
                           style={{
                             width: "100%", boxSizing: "border-box", background: "transparent", color: T.fg,
                             border: "none", borderBottom: `1px solid ${T.rule}`, borderRadius: 0, padding: "4px 2px", fontSize: 12, outline: "none"
@@ -904,7 +1057,7 @@ function ExerciseLogEditor({ T, log, setLog, plans, sessions, exerciseNames }) {
             <button onClick={() => addSet(i)} className="fl-mono" style={{
               width: "100%", marginTop: 10, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
               height: 36, fontSize: 10, letterSpacing: "0.1em", borderRadius: 0, textTransform: "uppercase"
-            }}>+ Add set</button>
+            }}>{tr("+ Add set")}</button>
           </div>
         );
       })}
@@ -969,7 +1122,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
   return (
     <div style={{ borderTop: `2px solid ${T.fg}`, marginTop: 4 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 0 0" }}>
-        <div style={{ font: "700 22px/1 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>{editSession ? "Edit session" : "New session"}</div>
+        <div style={{ font: "700 22px/1 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>{tr(editSession ? "Edit session" : "New session")}</div>
         <button onClick={onCancel} style={{ background: "none", border: "none", color: T.muted, padding: 6 }}><Icon name="x" size={20} /></button>
       </div>
 
@@ -977,7 +1130,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
         <button onClick={repeat} className="fl-mono" style={{
           width: "100%", marginTop: 14, border: `1px dashed ${T.rule}`, background: "transparent", color: T.muted,
           height: 44, fontSize: 11, letterSpacing: "0.12em", borderRadius: 0, textTransform: "uppercase"
-        }}>↻ Repeat: {getDiscipline(last.discipline).label}{last.duration ? ` ${last.duration}′` : ""}</button>
+        }}>↻ {tr("Repeat")}: {tr(getDiscipline(last.discipline).label)}{last.duration ? ` ${last.duration}′` : ""}</button>
       )}
 
       <div style={{ marginTop: 18 }}><Label T={T}>Discipline</Label>
@@ -1009,7 +1162,7 @@ function SessionForm({ T, onSave, onCancel, last, plans, sessions, exerciseNames
             ) : (
               <span className="fl-mono" style={{ fontSize: 30, fontWeight: 600, color: T.fg }}>{duration}</span>
             )}
-            <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>MIN</span>
+            <span className="fl-mono" style={{ fontSize: 11, color: T.muted }}>{tr("MIN")}</span>
           </div>
           <button onClick={() => step(15)} style={{ width: 56, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, fontSize: 24, borderRadius: 0 }}>+</button>
         </div>
@@ -1061,9 +1214,9 @@ function SessionRow({ T, session, onDelete, onEdit }) {
         </div>
         <div style={{ flex: 1, minWidth: 0, padding: "14px 0 14px 14px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{disc.label}</div>
+            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: disc.strong ? T.fg : T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tr(disc.label)}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
-              {session.intensity != null && <span className="fl-mono" style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>INT {session.intensity}</span>}
+              {session.intensity != null && <span className="fl-mono" style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>{tr("INT")} {session.intensity}</span>}
               {!!session.duration && <div className="fl-mono" style={{ fontSize: 13, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{session.duration}′</div>}
             </div>
           </div>
@@ -1074,7 +1227,7 @@ function SessionRow({ T, session, onDelete, onEdit }) {
           )}
           {!open && !(session.exerciseLog && session.exerciseLog.length > 0) && session.enduranceType && (
             <div style={{ fontSize: 12, lineHeight: 1.35, color: T.body, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {session.enduranceType}{session.enduranceDistance != null ? ` · ${session.enduranceDistance}m` : ""}
+              {tr(session.enduranceType)}{session.enduranceDistance != null ? ` · ${session.enduranceDistance}m` : ""}
             </div>
           )}
           {!open && !(session.exerciseLog && session.exerciseLog.length > 0) && !session.enduranceType && (session.notes || session.didWell) && (
@@ -1094,21 +1247,28 @@ function SessionRow({ T, session, onDelete, onEdit }) {
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
                     {ex.sets.filter((s) => s.weight || s.reps).map((s, si) => {
                       const type = inferExerciseType(ex.name);
-                      const text = type === "hold" ? (s.reps || "–")
-                        : type === "bodyweight" ? `${s.weight ? "+" + s.weight + "kg" : "BW"} × ${s.reps || "–"}`
-                        : `${s.weight || "–"}${s.weight ? "kg" : ""} × ${s.reps || "–"}`;
+                      const text = fmtSet(s, type).replace("×", " × ");
+                      const kind = getSetKind(s.kind);
                       return (
-                        <span key={si} className="fl-mono" style={{ fontSize: 11, color: T.body, border: `1px solid ${T.rule}`, padding: "5px 8px" }}>
-                          {text}
+                        <span key={si} className="fl-mono" style={{
+                          fontSize: 11, color: T.body, border: `1px ${s.kind === "warmup" ? "dashed" : "solid"} ${T.rule}`, padding: "5px 8px",
+                          opacity: s.kind === "warmup" ? 0.65 : 1
+                        }}>
+                          {kind.badge && <b style={{ color: T.fg, marginRight: 5 }} title={tr(kind.label)}>{kind.badge}</b>}{text}
                         </span>
                       );
                     })}
-                    {ex.sets.every((s) => !s.weight && !s.reps) && <span style={{ fontSize: 12, color: T.muted }}>No sets logged</span>}
+                    {ex.sets.every((s) => !s.weight && !s.reps) && <span style={{ fontSize: 12, color: T.muted }}>{tr("No sets logged")}</span>}
                   </div>
+                  {ex.sets.some((s) => s.kind && s.kind !== "normal") && (
+                    <div className="fl-mono" style={{ marginTop: 6, fontSize: 9.5, color: T.muted }}>
+                      {SET_KINDS.filter((k) => k.badge && ex.sets.some((s) => s.kind === k.key)).map((k) => `${k.badge} = ${tr(k.label)}`).join(" · ")}
+                    </div>
+                  )}
                   {ex.sets.some((s) => s.note) && (
                     <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
                       {ex.sets.map((s, si) => s.note && (
-                        <div key={si} style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>Set {si + 1}: {s.note}</div>
+                        <div key={si} style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>{tr("Set")} {si + 1}: {s.note}</div>
                       ))}
                     </div>
                   )}
@@ -1118,7 +1278,7 @@ function SessionRow({ T, session, onDelete, onEdit }) {
           )}
           {session.enduranceType && (
             <div>
-              <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{session.enduranceType}</div>
+              <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(session.enduranceType)}</div>
               {session.enduranceDistance != null && <div className="fl-mono" style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{session.enduranceDistance}m</div>}
             </div>
           )}
@@ -1132,11 +1292,11 @@ function SessionRow({ T, session, onDelete, onEdit }) {
             <button onClick={() => onEdit(session)} className="fl-mono" style={{
               background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
               borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
-            }}>✎ EDIT</button>
+            }}>✎ {tr("EDIT")}</button>
             <button onClick={() => onDelete(session.id)} className="fl-mono" style={{
               background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
               borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
-            }}><Icon name="trash" size={14} /> DELETE</button>
+            }}><Icon name="trash" size={14} /> {tr("DELETE")}</button>
           </div>
         </div>
       )}
@@ -1148,9 +1308,9 @@ function SessionSummaryModal({ T, session, priorSessions, onClose }) {
   const disc = getDiscipline(session.discipline);
   const isStrength = session.discipline === "strength";
   const cmp = isStrength ? buildStrengthComparison(session, priorSessions) : null;
-  const tiles = [{ v: session.duration || "–", l: "MINUTES" }];
-  if (session.intensity != null) tiles.push({ v: `${session.intensity}/10`, l: "INTENSITY" });
-  if (cmp) tiles.push({ v: Math.round(cmp.curTotal).toLocaleString(), l: "KG VOLUME" });
+  const tiles = [{ v: session.duration || "–", l: tr("MINUTES") }];
+  if (session.intensity != null) tiles.push({ v: `${session.intensity}/10`, l: tr("INTENSITY") });
+  if (cmp) tiles.push({ v: Math.round(cmp.curTotal).toLocaleString(), l: tr("KG VOLUME") });
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 70,
@@ -1159,8 +1319,8 @@ function SessionSummaryModal({ T, session, priorSessions, onClose }) {
       <div onClick={(e) => e.stopPropagation()} style={{
         width: "100%", maxWidth: 480, boxSizing: "border-box", background: T.bg, borderTop: `2px solid ${T.fg}`, padding: 22
       }}>
-        <div className="fl-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: T.win, textAlign: "center" }}>✓ SESSION LOGGED SUCCESSFULLY</div>
-        <div style={{ font: "700 24px/1.1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, textAlign: "center", marginTop: 6 }}>{disc.label}</div>
+        <div className="fl-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: T.win, textAlign: "center" }}>✓ {tr("SESSION LOGGED SUCCESSFULLY")}</div>
+        <div style={{ font: "700 24px/1.1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, textAlign: "center", marginTop: 6 }}>{tr(disc.label)}</div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${tiles.length}, 1fr)`, gap: 1, marginTop: 18, background: T.rule }}>
           {tiles.map((t) => (
             <div key={t.l} style={{ background: T.bg, padding: "14px 8px", textAlign: "center" }}>
@@ -1171,11 +1331,11 @@ function SessionSummaryModal({ T, session, priorSessions, onClose }) {
         </div>
         {cmp && cmp.matchedCount > 0 && cmp.delta !== null && (
           <div className="fl-mono" style={{ marginTop: 16, textAlign: "center", fontSize: 12, fontWeight: 600, color: cmp.delta >= 0 ? T.win : T.loss }}>
-            {cmp.delta >= 0 ? "▲" : "▼"} {Math.abs(Math.round(cmp.delta))}% volume vs last time on shared exercises
+            {cmp.delta >= 0 ? "▲" : "▼"} {Math.abs(Math.round(cmp.delta))}% {tr("volume vs last time on shared exercises")}
           </div>
         )}
         {cmp && cmp.matchedCount === 0 && (
-          <div className="fl-mono" style={{ marginTop: 16, textAlign: "center", fontSize: 11, color: T.muted }}>No prior sessions with these exercises yet</div>
+          <div className="fl-mono" style={{ marginTop: 16, textAlign: "center", fontSize: 11, color: T.muted }}>{tr("No prior sessions with these exercises yet")}</div>
         )}
         <div style={{ marginTop: 20 }}><Primary T={T} onClick={onClose}>Done</Primary></div>
       </div>
@@ -1204,9 +1364,9 @@ function LogView({ T, sessions, addSession, updateSession, deleteSession, plans,
         {[{ v: stats.total, l: "SESSIONS" }, { v: stats.week, l: "THIS WEEK" }, { v: stats.top, l: "MOST LOGGED", txt: true }].map((s, i) => (
           <div key={s.l} style={{ padding: "16px 14px", borderLeft: i > 0 ? `1px solid ${T.rule}` : "none" }}>
             {s.txt
-              ? <div style={{ font: "600 17px/0.9 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, paddingTop: 12 }}>{s.v}</div>
+              ? <div style={{ font: "600 17px/0.9 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, paddingTop: 12 }}>{tr(s.v)}</div>
               : <div className="fl-mono" style={{ fontSize: 34, lineHeight: 0.85, fontWeight: 600, color: T.fg }}>{s.v}</div>}
-            <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, marginTop: 9 }}>{s.l}</div>
+            <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.16em", color: T.muted, marginTop: 9 }}>{tr(s.l)}</div>
           </div>
         ))}
       </div>
@@ -1291,7 +1451,7 @@ function CalendarView({ T, events, addEvent, deleteEvent }) {
         <button onClick={() => setCursor((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))}
           style={{ width: 40, height: 40, border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="left" /></button>
         <div style={{ textAlign: "center" }}>
-          <div style={{ font: "700 24px/0.9 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>{MONTHS[cursor.m]}</div>
+          <div style={{ font: "700 24px/0.9 Archivo, sans-serif", letterSpacing: "-0.02em", textTransform: "uppercase", color: T.fg }}>{monthName(cursor.m)}</div>
           <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.18em", color: T.muted, marginTop: 7 }}>{cursor.y}</div>
         </div>
         <button onClick={() => setCursor((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))}
@@ -1299,7 +1459,7 @@ function CalendarView({ T, events, addEvent, deleteEvent }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginTop: 10 }}>
-        {WEEKDAYS.map((w) => <div key={w} className="fl-mono" style={{ textAlign: "center", fontSize: 9, letterSpacing: "0.1em", color: T.muted, padding: "8px 0" }}>{w}</div>)}
+        {weekdays().map((w) => <div key={w} className="fl-mono" style={{ textAlign: "center", fontSize: 9, letterSpacing: "0.1em", color: T.muted, padding: "8px 0" }}>{w}</div>)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
         {cells.map(({ date, current }, i) => {
@@ -1325,19 +1485,19 @@ function CalendarView({ T, events, addEvent, deleteEvent }) {
 
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "20px 0 10px", borderBottom: `1px solid ${T.rule}` }}>
         <div style={{ font: "600 16px/1 Archivo, sans-serif", letterSpacing: "0.04em", textTransform: "uppercase", color: T.fg }}>{fmtLong(selected)}</div>
-        <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{dayEvents.length} {dayEvents.length === 1 ? "ENTRY" : "ENTRIES"}</div>
+        <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{dayEvents.length} {tr(dayEvents.length === 1 ? "ENTRY" : "ENTRIES")}</div>
       </div>
 
       {dayEvents.map((e) => (
         <div key={e.id} style={{ display: "flex", gap: 14, padding: "14px 0", borderBottom: `1px solid ${T.rule}` }}>
           <div className="fl-mono" style={{ width: 46, flex: "none", fontSize: 13, fontWeight: 600, color: T.fg, paddingTop: 2 }}>{e.time || "—"}</div>
           <div style={{ flex: 1 }}>
-            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: (e.type === "competition" || e.type === "tournament") ? T.accent : T.fg }}>{e.title}</div>
+            <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: (e.type === "competition" || e.type === "tournament") ? T.accent : T.fg }}>{tr(e.title)}</div>
             {e.location && <div style={{ fontSize: 12, lineHeight: 1.3, color: T.body, marginTop: 6 }}>{e.location}</div>}
             {e.notes && <div style={{ fontSize: 13, lineHeight: 1.4, color: T.fg, marginTop: 6, textWrap: "pretty" }}>{e.notes}</div>}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
-            <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: T.muted, textTransform: "uppercase" }}>{getEventType(e.type).label}</span>
+            <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: T.muted, textTransform: "uppercase" }}>{tr(getEventType(e.type).label)}</span>
             <button onClick={() => deleteEvent(e.id)} style={{ background: "none", border: "none", color: T.muted, padding: 0 }}><Icon name="trash" size={14} /></button>
           </div>
         </div>
@@ -1357,10 +1517,10 @@ function CalendarView({ T, events, addEvent, deleteEvent }) {
             <div key={e.id} style={{ display: "flex", gap: 14, padding: "12px 0", borderTop: `1px solid ${T.rule}`, marginTop: 8 }}>
               <div className="fl-mono" style={{ width: 56, flex: "none", fontSize: 11, fontWeight: 600, color: T.accent, paddingTop: 3 }}>{fmtDateShort(e.date)}</div>
               <div style={{ flex: 1 }}>
-                <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{e.title}</div>
+                <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(e.title)}</div>
                 {e.location && <div style={{ fontSize: 12, color: T.body, marginTop: 6 }}>{e.location}</div>}
               </div>
-              <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: T.accent, paddingTop: 3, textTransform: "uppercase" }}>{getEventType(e.type).label}</span>
+              <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: T.accent, paddingTop: 3, textTransform: "uppercase" }}>{tr(getEventType(e.type).label)}</span>
             </div>
           ))}
         </div>
@@ -1393,7 +1553,7 @@ function PlanRow({ T, plan, onDelete, onRename }) {
             <div style={{ font: "600 14px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{plan.name}</div>
           )}
           <div className="fl-mono" style={{ fontSize: 10, color: T.muted, marginTop: 6 }}>
-            {plan.exercises.length} EXERCISES{plan.duration ? ` · ${plan.duration} MIN` : ""}
+            {plan.exercises.length} {tr("EXERCISES")}{plan.duration ? ` · ${plan.duration} ${tr("MIN")}` : ""}
           </div>
         </div>
         {!renaming && (
@@ -1406,13 +1566,13 @@ function PlanRow({ T, plan, onDelete, onRename }) {
           {plan.exercises.map((ex, i) => (
             <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
               <span style={{ fontSize: 14, color: T.fg }}>{ex.name}</span>
-              <span className="fl-mono" style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>{ex.sets} × {ex.reps}</span>
+              <span className="fl-mono" style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>{ex.sets} × {trReps(ex.reps)}</span>
             </div>
           ))}
           <button onClick={() => onDelete(plan.id)} className="fl-mono" style={{
             alignSelf: "flex-start", marginTop: 4, background: "transparent", border: `1px solid ${T.rule}`, color: T.muted,
             borderRadius: 0, padding: "10px 12px", fontSize: 10, letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 8
-          }}><Icon name="trash" size={14} /> DELETE</button>
+          }}><Icon name="trash" size={14} /> {tr("DELETE")}</button>
         </div>
       )}
     </div>
@@ -1434,19 +1594,19 @@ function ScDraftPreview({ T, days, programName, setProgramName, onSave, onDiscar
   return (
     <div style={{ marginTop: 20 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Weekly program</div>
-        <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{days.length} SESSIONS</div>
+        <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr("Weekly program")}</div>
+        <div className="fl-mono" style={{ fontSize: 10, color: T.muted }}>{days.length} {tr("SESSIONS")}</div>
       </div>
       {days.map((d, di) => (
         <div key={di} style={{ marginTop: 16 }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-            <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{d.label}</div>
-            {d.circuit && <span className="fl-mono" style={{ fontSize: 8.5, color: T.muted, letterSpacing: "0.06em" }}>CIRCUIT · REST AFTER EACH ROUND</span>}
+            <div style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(d.label)}</div>
+            {d.circuit && <span className="fl-mono" style={{ fontSize: 8.5, color: T.muted, letterSpacing: "0.06em" }}>{tr("CIRCUIT · REST AFTER EACH ROUND")}</span>}
           </div>
           {d.exercises.map((ex, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderTop: `1px solid ${T.rule}` }}>
               <div style={{ flex: 1, fontSize: 14, color: T.fg }}>{ex.name}</div>
-              <div className="fl-mono" style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>{ex.sets} × {ex.reps}</div>
+              <div className="fl-mono" style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>{ex.sets} × {trReps(ex.reps)}</div>
             </div>
           ))}
         </div>
@@ -1477,17 +1637,17 @@ function StrengthView({ T, plans, addPlan, addPlans, deletePlan, renamePlan, exe
   const generate = () => {
     if (mode === "strength") {
       setDraft(buildStrengthWeek(goal, sessionsPerWeek, equipment, familiarity));
-      setProgramName(`${SC_GOALS.find((g) => g.key === goal).label} · ${sessionsPerWeek}x/week`);
+      setProgramName(`${tr(SC_GOALS.find((g) => g.key === goal).label)} · ${sessionsPerWeek}${tr("x/week")}`);
     } else {
       setDraft(buildEnduranceWeek(sessionsPerWeek, enduranceEquipment, familiarity));
-      setProgramName(`Endurance · ${sessionsPerWeek}x/week`);
+      setProgramName(`${tr("Endurance")} · ${sessionsPerWeek}${tr("x/week")}`);
     }
   };
   const saveProgram = () => {
     if (!draft) return;
-    const base = programName.trim() || "Program";
+    const base = programName.trim() || tr("Program");
     const now = Date.now();
-    addPlans(draft.map((d, i) => ({ id: uid(), name: `${base} · ${d.label}`, goal: mode, duration: null, exercises: d.exercises, createdAt: now - i })));
+    addPlans(draft.map((d, i) => ({ id: uid(), name: `${base} · ${tr(d.label)}`, goal: mode, duration: null, exercises: d.exercises, createdAt: now - i })));
     setDraft(null); setProgramName("");
   };
   const addManual = () => { if (!mName.trim()) return; setManual((l) => [...l, { name: mName.trim(), sets: mSets || "-", reps: mReps || "-" }]); setMName(""); setMSets(""); setMReps(""); };
@@ -1504,7 +1664,7 @@ function StrengthView({ T, plans, addPlan, addPlans, deletePlan, renamePlan, exe
           display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between",
           background: "transparent", border: "none", padding: 0, color: T.fg
         }}>
-          <span style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase" }}>Build your own</span>
+          <span style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase" }}>{tr("Build your own")}</span>
           <span style={{ fontSize: 18, color: T.muted, transform: manualOpen ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
         </button>
         {manualOpen && (
@@ -1679,7 +1839,7 @@ function PRGroupCard({ T, exercise, entries, deletePR }) {
       <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
         <div>
           <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{exercise}</div>
-          <div className="fl-mono" style={{ fontSize: 9, color: T.muted, marginTop: 5, letterSpacing: "0.08em" }}>{sorted.length} ENTR{sorted.length === 1 ? "Y" : "IES"} · SINCE {fmtDateShort(sorted[0].date)}</div>
+          <div className="fl-mono" style={{ fontSize: 9, color: T.muted, marginTop: 5, letterSpacing: "0.08em" }}>{sorted.length} {tr(sorted.length === 1 ? "ENTRY" : "ENTRIES")} · {tr("SINCE")} {fmtDateShort(sorted[0].date)}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {delta !== null && <span className="fl-mono" style={{ fontSize: 10, fontWeight: 600, padding: "3px 6px", background: delta >= 0 ? T.winBg : T.lossBg, color: delta >= 0 ? T.win : T.loss }}>{delta >= 0 ? "+" : ""}{delta}kg</span>}
@@ -1718,9 +1878,9 @@ function PRsSection({ T, prs, addPR, deletePR, exerciseNames }) {
   return (
     <div style={{ border: `1px solid ${T.rule}` }}>
       <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
-        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Personal Records</div>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>{tr("Personal Records")}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{grouped.length} tracked</span>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{grouped.length} {tr("tracked")}</span>
           <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
         </div>
       </button>
@@ -1774,14 +1934,14 @@ function BodyweightSection({ T, bodyweight, addBodyweight, deleteBodyweight }) {
     <div style={{ border: `1px solid ${T.rule}` }}>
       <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
         <div>
-          <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Bodyweight</div>
+          <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>{tr("Bodyweight")}</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
             {latest ? (
               <>
                 <span className="fl-mono" style={{ fontSize: 19, fontWeight: 600, color: T.fg }}>{latest.weight}kg</span>
-                {delta !== null && <span className="fl-mono" style={{ fontSize: 10, fontWeight: 600, padding: "2px 5px", background: delta <= 0 ? T.winBg : T.lossBg, color: delta <= 0 ? T.win : T.loss }}>{delta > 0 ? "+" : ""}{delta}kg since {fmtDateShort(windowStart.date)}</span>}
+                {delta !== null && <span className="fl-mono" style={{ fontSize: 10, fontWeight: 600, padding: "2px 5px", background: delta <= 0 ? T.winBg : T.lossBg, color: delta <= 0 ? T.win : T.loss }}>{delta > 0 ? "+" : ""}{delta}kg {tr("since")} {fmtDateShort(windowStart.date)}</span>}
               </>
-            ) : <span className="fl-mono" style={{ fontSize: 13, color: T.muted }}>No entries yet</span>}
+            ) : <span className="fl-mono" style={{ fontSize: 13, color: T.muted }}>{tr("No entries yet")}</span>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1861,7 +2021,7 @@ function FightResultForm({ T, category, onSave, onCancel }) {
           {methods.map((m) => <Chip key={m} T={T} active={method === m} onClick={() => { setMethod(m); setError(false); }}>{m}</Chip>)}
         </div>
       </div>
-      {error && <div style={{ fontSize: 12, color: T.loss, marginTop: 10 }}>Pick a result and a method.</div>}
+      {error && <div style={{ fontSize: 12, color: T.loss, marginTop: 10 }}>{tr("Pick a result and a method.")}</div>}
       <div style={{ marginTop: 14 }}><Label T={T}>Opponent (optional)</Label>
         <div style={{ marginTop: 8 }}><Input T={T} placeholder="Name" value={opponent} onChange={(e) => setOpponent(e.target.value)} /></div></div>
       <div style={{ marginTop: 12 }}><Label T={T}>Date</Label>
@@ -1884,7 +2044,7 @@ function FightCategoryCard({ T, category, fights, addFlow, setAddFlow, deleteFig
   const d = fights.filter((f) => f.result === "D" || f.result === "NC").length;
   const methodCounts = {};
   fights.forEach((f) => { if (f.result === "W") methodCounts[f.method] = (methodCounts[f.method] || 0) + 1; });
-  const methodLabel = Object.entries(methodCounts).map(([m, c]) => `${m} × ${c}`).join(" · ");
+  const methodLabel = Object.entries(methodCounts).map(([m, c]) => `${tr(m)} × ${c}`).join(" · ");
   const sorted = useMemo(() => fights.slice().sort((a, b) => b.date.localeCompare(a.date)), [fights]);
 
   const active = addFlow && addFlow.category === category;
@@ -1894,8 +2054,8 @@ function FightCategoryCard({ T, category, fights, addFlow, setAddFlow, deleteFig
     <div style={{ border: `1px solid ${T.rule}`, marginTop: 10 }}>
       <button onClick={() => setManualOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
         <div>
-          <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{cat.label}</div>
-          <div className="fl-mono" style={{ fontSize: 9, color: T.muted, marginTop: 5, letterSpacing: "0.08em" }}>{methodLabel || "NO WINS YET"}</div>
+          <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(cat.label)}</div>
+          <div className="fl-mono" style={{ fontSize: 9, color: T.muted, marginTop: 5, letterSpacing: "0.08em" }}>{methodLabel || tr("NO WINS YET")}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span className="fl-mono" style={{ fontSize: 16, fontWeight: 600, color: T.fg, whiteSpace: "nowrap" }}>{w}-{l}-{d}</span>
@@ -1908,7 +2068,7 @@ function FightCategoryCard({ T, category, fights, addFlow, setAddFlow, deleteFig
             <div key={f.id} style={{ display: "flex", gap: 12, padding: "11px 0", borderTop: `1px solid ${T.rule}` }}>
               <ResultBadge T={T} result={f.result} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{f.method}</div>
+                <div style={{ font: "600 13.5px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(f.method)}</div>
                 <div className="fl-mono" style={{ fontSize: 10.5, color: T.muted, marginTop: 4 }}>{[fmtDateShort(f.date), f.opponent].filter(Boolean).join(" · ")}</div>
                 {f.notes && <div style={{ fontSize: 12.5, color: T.body, marginTop: 5, lineHeight: 1.35 }}>{f.notes}</div>}
               </div>
@@ -2016,7 +2176,7 @@ function WeeklyGoalCard({ T, goal, sessions, deleteGoal }) {
         <button onClick={() => deleteGoal(goal.id)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="trash" size={14} /></button>
       </div>
       <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-        {WEEKDAYS.map((wd, i) => {
+        {weekdays().map((wd, i) => {
           const iso = prog.days[i];
           const count = prog.counts[i];
           const isToday = iso === todayIso;
@@ -2031,7 +2191,7 @@ function WeeklyGoalCard({ T, goal, sessions, deleteGoal }) {
         })}
       </div>
       <div className="fl-mono" style={{ fontSize: 10.5, color: T.muted, marginTop: 10, letterSpacing: "0.04em" }}>
-        <b style={{ color: T.fg }}>{prog.total}</b> / {goal.target} this week{goal.disciplineFilter !== "any" ? ` · ${getGoalDisciplineLabel(goal.disciplineFilter)}` : ""}
+        <b style={{ color: T.fg }}>{prog.total}</b> / {goal.target} {tr("this week")}{goal.disciplineFilter !== "any" ? ` · ${getGoalDisciplineLabel(goal.disciplineFilter)}` : ""}
       </div>
     </div>
   );
@@ -2051,7 +2211,7 @@ function MonthlyGoalCard({ T, goal, sessions, toggleGoalDone, deleteGoal }) {
       </div>
       {hasTarget && <div style={{ height: 6, background: T.rule, marginTop: 12 }}><div style={{ height: 6, width: `${pct}%`, background: T.fg }} /></div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-        <span className="fl-mono" style={{ fontSize: 9, color: T.muted, letterSpacing: "0.08em" }}>{hasTarget ? `${pct}% · ${getGoalDisciplineLabel(goal.disciplineFilter)}` : "MANUAL"}</span>
+        <span className="fl-mono" style={{ fontSize: 9, color: T.muted, letterSpacing: "0.08em" }}>{hasTarget ? `${pct}% · ${getGoalDisciplineLabel(goal.disciplineFilter)}` : tr("MANUAL")}</span>
         <button onClick={() => deleteGoal(goal.id)} style={{ background: "none", border: "none", color: T.muted, padding: 2 }}><Icon name="trash" size={13} /></button>
       </div>
     </div>
@@ -2091,9 +2251,9 @@ function GoalsSection({ T, goals, sessions, addGoal, deleteGoal, toggleGoalDone 
   return (
     <div style={{ border: `1px solid ${T.rule}` }}>
       <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
-        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Goals</div>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>{tr("Goals")}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{goals.length} active</span>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{goals.length} {tr("active")}</span>
           <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
         </div>
       </button>
@@ -2119,7 +2279,7 @@ function GoalsSection({ T, goals, sessions, addGoal, deleteGoal, toggleGoalDone 
           </div>
           {showForm
             ? <GoalForm T={T} tier={tier} onCancel={() => setShowForm(false)} onSave={(g) => { addGoal(g); setShowForm(false); }} />
-            : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> Add {tier} goal</Primary></div>}
+            : <div style={{ marginTop: 12 }}><Primary T={T} onClick={() => setShowForm(true)}><Icon name="plus" size={15} /> {tr(`Add ${tier} goal`)}</Primary></div>}
         </div>
       )}
     </div>
@@ -2142,37 +2302,37 @@ function WeeklyRecapSection({ T, sessions }) {
   return (
     <div style={{ border: `1px solid ${T.rule}` }}>
       <button onClick={() => setOpen((o) => !o)} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", padding: 14, textAlign: "left" }}>
-        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>Weekly Recap</div>
+        <div className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.14em", color: T.muted, textTransform: "uppercase" }}>{tr("Weekly Recap")}</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{thisWeek.count} sessions</span>
+          <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{thisWeek.count} {tr("sessions")}</span>
           <span style={{ fontSize: 16, color: T.muted, transform: open ? "rotate(45deg)" : "none", transition: "transform .2s" }}>+</span>
         </div>
       </button>
       {open && (
         <div style={{ padding: "0 14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
           {thisWeek.count === 0
-            ? <div style={{ fontSize: 13, color: T.muted }}>No sessions logged this week yet.</div>
+            ? <div style={{ fontSize: 13, color: T.muted }}>{tr("No sessions logged this week yet.")}</div>
             : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, color: T.body }}>Minutes trained</span>
+                  <span style={{ fontSize: 13, color: T.body }}>{tr("Minutes trained")}</span>
                   <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{thisWeek.minutes}′</span>
                 </div>
                 {thisWeek.avgIntensity != null && (
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, color: T.body }}>Avg intensity</span>
+                    <span style={{ fontSize: 13, color: T.body }}>{tr("Avg intensity")}</span>
                     <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{thisWeek.avgIntensity.toFixed(1)}/10</span>
                   </div>
                 )}
                 {topDiscipline && (
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, color: T.body }}>Most trained</span>
-                    <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{getDiscipline(topDiscipline[0]).label}</span>
+                    <span style={{ fontSize: 13, color: T.body }}>{tr("Most trained")}</span>
+                    <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>{tr(getDiscipline(topDiscipline[0]).label)}</span>
                   </div>
                 )}
                 {thisWeek.volume > 0 && (
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, color: T.body }}>Strength volume</span>
+                    <span style={{ fontSize: 13, color: T.body }}>{tr("Strength volume")}</span>
                     <span className="fl-mono" style={{ fontSize: 13, color: T.fg }}>
                       {Math.round(thisWeek.volume).toLocaleString()}kg
                       {volDelta !== null && <span style={{ color: volDelta >= 0 ? T.win : T.loss, marginLeft: 6 }}>{volDelta >= 0 ? "▲" : "▼"}{Math.abs(Math.round(volDelta))}%</span>}
@@ -2224,11 +2384,11 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <div className="fl-mono" style={{ fontSize: 40, lineHeight: 0.85, fontWeight: 600, color: T.fg }}>{total}</div>
-          <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: T.muted }}>MINUTES · Ø {avg} / {avgUnit}</div>
+          <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: T.muted }}>{tr("MINUTES")} · Ø {avg} / {tr(avgUnit)}</div>
         </div>
         <button onClick={() => setChartType((t) => (t === "bar" ? "line" : "bar"))} className="fl-mono" style={{
           border: `1px solid ${T.rule}`, background: "transparent", color: T.muted, padding: "6px 9px", fontSize: 9, letterSpacing: "0.08em", borderRadius: 0
-        }}>{chartType === "bar" ? "📈 LINE" : "▥ BARS"}</button>
+        }}>{chartType === "bar" ? "📈 " + tr("LINE") : "▥ " + tr("BARS")}</button>
       </div>
 
       <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
@@ -2262,7 +2422,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
         <Label T={T}>Split by discipline</Label>
         <div style={{ marginTop: 6 }}>
           {rows.length === 0
-            ? <div style={{ fontSize: 13, color: T.body, padding: "10px 0" }}>No sessions logged yet.</div>
+            ? <div style={{ fontSize: 13, color: T.body, padding: "10px 0" }}>{tr("No sessions logged yet.")}</div>
             : rows.map((d) => {
                 const pct = Math.round((d.count / sessions.length) * 100);
                 const isOpen = expandedDiscipline === d.key;
@@ -2273,7 +2433,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
                       display: "block", width: "100%", background: "transparent", border: "none", padding: "9px 0", textAlign: "left"
                     }}>
                       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                        <span style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{d.label}</span>
+                        <span style={{ font: "600 13px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr(d.label)}</span>
                         <span className="fl-mono" style={{ fontSize: 12, color: T.muted }}>{pct}%</span>
                       </div>
                       <div style={{ height: 6, background: T.rule, marginTop: 9 }}><div style={{ height: 6, width: `${pct}%`, background: T.fg }} /></div>
@@ -2281,32 +2441,32 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
                     {isOpen && (
                       <div style={{ padding: "0 0 14px", display: "flex", flexDirection: "column", gap: 8 }}>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: T.body }}>Sessions</span>
+                          <span style={{ fontSize: 12, color: T.body }}>{tr("Sessions")}</span>
                           <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.count}</span>
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: T.body }}>Total time</span>
+                          <span style={{ fontSize: 12, color: T.body }}>{tr("Total time")}</span>
                           <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.totalMinutes}′</span>
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: T.body }}>Avg session</span>
+                          <span style={{ fontSize: 12, color: T.body }}>{tr("Avg session")}</span>
                           <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.avgMinutes}′</span>
                         </div>
                         {detail.avgIntensity != null && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: T.body }}>Avg intensity</span>
+                            <span style={{ fontSize: 12, color: T.body }}>{tr("Avg intensity")}</span>
                             <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.avgIntensity.toFixed(1)}/10</span>
                           </div>
                         )}
                         {detail.perWeek != null && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: T.body }}>Frequency</span>
-                            <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.perWeek.toFixed(1)}x/week</span>
+                            <span style={{ fontSize: 12, color: T.body }}>{tr("Frequency")}</span>
+                            <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{detail.perWeek.toFixed(1)}{tr("x/week")}</span>
                           </div>
                         )}
                         {detail.lastDate && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: T.body }}>Last trained</span>
+                            <span style={{ fontSize: 12, color: T.body }}>{tr("Last trained")}</span>
                             <span className="fl-mono" style={{ fontSize: 12, color: T.fg }}>{fmtDateShort(detail.lastDate)}</span>
                           </div>
                         )}
@@ -2339,27 +2499,27 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
       </div>
 
       <div style={{ marginTop: 22, paddingTop: 16, borderTop: `1px solid ${T.rule}` }}>
-        <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>Backup</div>
+        <div style={{ font: "600 15px/1 Archivo, sans-serif", textTransform: "uppercase", color: T.fg }}>{tr("Backup")}</div>
         <div style={{ fontSize: 12, lineHeight: 1.4, color: T.body, marginTop: 8, textWrap: "pretty" }}>
-          Your data lives on this device only. Export a file regularly or move it to another phone.
+          {tr("Your data lives on this device only. Export a file regularly or move it to another phone.")}
         </div>
         <div style={{ display: "flex", gap: 7, marginTop: 12 }}>
-          <Ghost T={T} onClick={doExport}><Icon name="down" size={16} /> Export</Ghost>
+          <Ghost T={T} onClick={doExport}><Icon name="down" size={16} /> {tr("Export")}</Ghost>
           <label style={{
             flex: 1, border: `1px solid ${T.fg}`, color: T.fg, height: 52, display: "flex", alignItems: "center",
             justifyContent: "center", gap: 8, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase"
           }}>
-            <Icon name="up" size={16} /> Import
+            <Icon name="up" size={16} /> {tr("Import")}
             <input type="file" accept="application/json" onChange={onFile} style={{ display: "none" }} />
           </label>
         </div>
-        {error && <div style={{ fontSize: 12, color: T.accent, marginTop: 12 }}>{error}</div>}
+        {error && <div style={{ fontSize: 12, color: T.accent, marginTop: 12 }}>{tr(error)}</div>}
         {pending && (
           <div style={{ marginTop: 14, border: `1px solid ${T.fg}`, padding: 14 }}>
             <div style={{ fontSize: 14, color: T.fg }}>
-              Found: {(pending.sessions || []).length} sessions, {(pending.events || []).length} events, {(pending.plans || []).length} plans
+              {tr("Found:")} {(pending.sessions || []).length} {tr("sessions")}, {(pending.events || []).length} {tr("events")}, {(pending.plans || []).length} {tr("plans")}
             </div>
-            <div style={{ fontSize: 12, color: T.body, marginTop: 8 }}>Importing replaces everything on this device.</div>
+            <div style={{ fontSize: 12, color: T.body, marginTop: 8 }}>{tr("Importing replaces everything on this device.")}</div>
             <div style={{ display: "flex", gap: 7, marginTop: 12 }}>
               <Ghost T={T} onClick={() => setPending(null)}>Cancel</Ghost>
               <div style={{ flex: 1 }}><button onClick={() => {
@@ -2373,7 +2533,7 @@ function StatsView({ T, sessions, events, plans, prs, addPR, deletePR, fights, a
                   goals: Array.isArray(pending.goals) ? pending.goals : []
                 });
                 setPending(null);
-              }} style={{ width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>Replace</button></div>
+              }} style={{ width: "100%", height: 52, background: T.fg, color: T.bg, border: "none", borderRadius: 0, font: "600 12px/1 Archivo, sans-serif", letterSpacing: "0.12em", textTransform: "uppercase" }}>{tr("Replace")}</button></div>
             </div>
           </div>
         )}
@@ -2403,6 +2563,8 @@ function App() {
   const [fights, setFights] = useState([]);
   const [bodyweight, setBodyweight] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [lang, setLang] = useState("en");
+  LANG = lang; // read by tr()/locale() in every component rendered below this one
   const T = THEMES[theme] || THEMES.light;
   const exerciseNames = useMemo(() => collectKnownExerciseNames(sessions, plans), [sessions, plans]);
 
@@ -2415,7 +2577,8 @@ function App() {
       loadKey("sessions", setSessions), loadKey("events", setEvents),
       loadKey("plans", setPlans), loadKey("prs", setPrs), loadKey("fights", setFights),
       loadKey("bodyweight", setBodyweight), loadKey("goals", setGoals),
-      loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true)
+      loadKey("theme", (v) => setTheme(v === "dark" ? "dark" : "light"), true),
+      loadKey("lang", (v) => setLang(v === "de" ? "de" : "en"), true)
     ]).finally(() => { if (on) setLoading(false); });
     return () => { on = false; };
   }, []);
@@ -2434,6 +2597,11 @@ function App() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     window.storage.set("theme", next).catch(() => {});
+  };
+  const toggleLang = () => {
+    const next = lang === "de" ? "en" : "de";
+    setLang(next);
+    window.storage.set("lang", next).catch(() => {});
   };
 
   const touchRef = useRef(null);
@@ -2506,20 +2674,26 @@ function App() {
           display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12
         }}>
           <div>
-            <div style={{ font: "700 30px/0.9 Archivo, sans-serif", letterSpacing: "-0.03em", textTransform: "uppercase" }}>{TITLES[tab]}</div>
-            <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.18em", color: T.muted, marginTop: 8 }}>{SUBTITLES[tab]}</div>
+            <div style={{ font: "700 30px/0.9 Archivo, sans-serif", letterSpacing: "-0.03em", textTransform: "uppercase" }}>{tr(TITLES[tab])}</div>
+            <div className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.18em", color: T.muted, marginTop: 8 }}>{tr(SUBTITLES[tab])}</div>
           </div>
-          <button onClick={toggleTheme} className="fl-mono" style={{
-            border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0,
-            fontSize: 10, letterSpacing: "0.14em", padding: "9px 11px"
-          }}>{theme === "dark" ? "DARK" : "LIGHT"}</button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={toggleLang} title="Language / Sprache" className="fl-mono" style={{
+              border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0,
+              fontSize: 10, letterSpacing: "0.14em", padding: "9px 11px"
+            }}>{lang === "de" ? "DE" : "EN"}</button>
+            <button onClick={toggleTheme} className="fl-mono" style={{
+              border: `1px solid ${T.fg}`, background: "transparent", color: T.fg, borderRadius: 0,
+              fontSize: 10, letterSpacing: "0.14em", padding: "9px 11px"
+            }}>{tr(theme === "dark" ? "DARK" : "LIGHT")}</button>
+          </div>
         </header>
 
         <main style={{ flex: 1, padding: "0 20px 28px" }} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
           {loading ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "90px 0", color: T.muted }}>
               <span className="icon-spin" style={{ display: "block" }}><Icon name="loader" size={22} /></span>
-              <span className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.16em" }}>LOADING</span>
+              <span className="fl-mono" style={{ fontSize: 10, letterSpacing: "0.16em" }}>{tr("LOADING")}</span>
             </div>
           ) : (
             <div style={{ marginTop: tab === "log" ? 0 : 10 }}>
@@ -2543,7 +2717,7 @@ function App() {
                 padding: "14px 0 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7
               }}>
                 <Icon name={t.icon} size={18} />
-                <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.1em" }}>{t.label}</span>
+                <span className="fl-mono" style={{ fontSize: 9, letterSpacing: "0.1em" }}>{tr(t.label)}</span>
               </button>
             );
           })}

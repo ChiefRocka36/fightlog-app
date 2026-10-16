@@ -257,6 +257,38 @@ Two additions to `StatsView`, both scoped to data already being computed elsewhe
   weekly frequency (session count divided by weeks between the discipline's first and
   last logged date), and the last-trained date.
 
+## Language (EN/DE)
+
+English is the source language; German is a dictionary on top. Every UI string stays written
+in English in the JSX and is looked up in the `DE` object at render time via `tr()`. `LANG` is
+a plain module variable that `App` assigns on every render (`LANG = lang`), so everything below
+it re-renders in the right language without a prop or context. The header has an `EN`/`DE`
+toggle (persisted under the `lang` storage key; default is English on purpose — it's an explicit
+switch, not browser-language auto-detect).
+- The shared primitives (`Label`, `Chip`, `SmallChip`, `Primary`, `Ghost`, `Empty`, and the
+  `placeholder` of `Input`/`Area`) translate their string children automatically (`trNode`), so
+  most labels need no code at all — only a `DE` entry. Strings that are not plain children
+  (conditionals, template strings, `{count} sessions` style text) need an explicit `tr(...)`.
+- **When adding any new UI text: write it in English, wrap it in `tr()` if it isn't going through
+  one of those primitives, and add the German to `DE`.** Missing entries just show English, so a
+  forgotten one is harmless but visible.
+- Not translated on purpose: exercise names (standard gym terms), user-entered text, plan names
+  that were saved earlier. Dates/months/weekdays use `locale()` / `monthName()` / `weekdays()`.
+  Voice dictation also switches its recognition language with `LANG`.
+- Generator rep schemes ("To failure", "8/side") are translated by `trReps`, not `tr`.
+
+## Set types (warm-up, drop, failure, ...)
+
+A set can carry a `kind` (`SET_KINDS`: warmup, drop, failure, restpause, backoff; empty/missing =
+normal working set). In `ExerciseLogEditor` the set-number cell is a button: tapping it opens a
+chip strip to pick the type, and the cell then shows the badge letter (W/D/F/R/B) instead of the
+number. Behavior that depends on it:
+- **Warm-up sets are excluded from volume** (`computeExerciseVolume`), so they can't inflate the
+  kg-volume or the vs-last-time % in the summary / weekly recap. Other kinds still count.
+- `fmtSets` ("LAST TIME") also leaves warm-ups out and prefixes other special sets with their
+  badge letter, so a drop set doesn't read like a normal one.
+- `SessionRow` shows the badge on each chip (warm-ups dashed + dimmed) with a small legend.
+
 ## If you're picking this up in a new conversation
 
 The conversation history (design rationale, rejected alternatives, exact wording of
